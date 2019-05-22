@@ -1,0 +1,35 @@
+[package]
+name = "futures-intrusive"
+edition = "2018"
+version = "0.1.0"
+authors = ["Matthias Einwag <matthias.einwag@live.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Matthias247/futures-intrusive"
+homepage = "https://github.com/Matthias247/futures-intrusive"
+description = """
+Futures based on intrusive data structures - for std and no-std environments.
+"""
+
+[lib]
+name = "futures_intrusive"
+
+[features]
+std = ["futures-core-preview/std"]
+default = ["std"]
+
+[dependencies]
+futures-core-preview = { version = "0.3.0-alpha.16", default-features = false }
+lock_api = "0.2"
+parking_lot = "0.8"
+
+[dev-dependencies]
+futures-preview = { version = "0.3.0-alpha.16", default-features = true, features=["async-await", "nightly"] }
+futures-test-preview = { version = "0.3.0-alpha.16", default-features = true }
+pin-utils = "0.1.0-alpha.4"
+criterion = "0.2.7"
+lazy_static = "1.3.0"
+rand = "0.6.5"
+
+[[bench]]
+name = "mpmc_channel"
+harness = false
