@@ -46,7 +46,7 @@ fn rand_delay(min: Duration, max_extra: Duration) -> Duration {
     min + Duration::from_millis(extra_ms)
 }
 
-/// How often a philospher should eat
+/// How often a philosopher should eat
 const TO_EAT: usize = 5;
 
 /// Simulates a single philosopher

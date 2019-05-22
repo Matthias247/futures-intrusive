@@ -1,7 +1,16 @@
 //! Synchronization primitives and utilities based on intrusive collections.
 //!
-//! This crate provides a variety of futures-aware synchronization primitives
-//! that are based on the idea of intrusive collections.
+//! This crate provides a variety of `Futures`-based and `async/await` compatible
+//! types that are based on the idea of intrusive collections:
+//! - Channels in a variety of flavors:
+//!   - Oneshot
+//!   - Multi-Producer Multi-Consumer (MPMC)
+//!   - State Broadcast
+//! - Synchronization Primitives:
+//!   - Manual Reset Event
+//!   - Mutex
+//!   - Semaphore
+//! - A timer
 //!
 //! ## Intrusive collections?
 //!
@@ -97,7 +106,7 @@
 //!   and deterministic memory usage are more important goals.
 //! - Providing future wrappers for platform-specific APIs.
 //!
-//! ## Local, Non-local and shared flavours
+//! ## Local, Non-local and shared flavors
 //!
 //! The library provides types in a variety of flavors:
 //!
@@ -211,8 +220,6 @@
 
 #![warn(missing_docs, missing_debug_implementations)]
 #![deny(bare_trait_objects)]
-
-#![doc(html_root_url = "https://rust-lang-nursery.github.io/futures-api-docs/0.3.0-alpha.11/futures_intrusive")]
 
 mod noop_lock;
 use noop_lock::NoopLock;

@@ -1,10 +1,22 @@
 futures-intrusive
 =================
 
-This crate provides a variety of futures-aware synchronization primitives
-that are based on the idea of intrusive collections.
+This crate provides a variety of `Futures`-based and `async/await` compatible
+types that are based on the idea of intrusive collections:
+- Channels in a variety of flavors:
+  - Oneshot
+  - Multi-Producer Multi-Consumer (MPMC)
+  - State Broadcast
+- Synchronization Primitives:
+  - Manual Reset Event
+  - Mutex
+  - Semaphore
+- A timer
 
-Please refer to the [documentation](https://docs.rs/futures-intrusive/0.1.0/futures_intrusive/) for details.
+Please refer to the [documentation](https://docs.rs/futures-intrusive) for details.
+
+In addition to the documentation the examples provide a quick overview on how
+the primitives can be used.
 
 ## Usage
 
