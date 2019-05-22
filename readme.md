@@ -4,7 +4,7 @@ futures-intrusive
 This crate provides a variety of futures-aware synchronization primitives
 that are based on the idea of intrusive collections.
 
-Please refer to the [documentation](https://docs.rs/futures-intrusive/) for details.
+Please refer to the [documentation](https://docs.rs/futures-intrusive/0.1.0/futures_intrusive/) for details.
 
 ## Usage
 
