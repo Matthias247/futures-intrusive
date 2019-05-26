@@ -1,7 +1,7 @@
 [package]
 name = "futures-intrusive"
 edition = "2018"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Matthias Einwag <matthias.einwag@live.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Matthias247/futures-intrusive"
@@ -14,13 +14,13 @@ Futures based on intrusive data structures - for std and no-std environments.
 name = "futures_intrusive"
 
 [features]
-std = ["futures-core-preview/std"]
+std = ["futures-core-preview/std", "parking_lot"]
 default = ["std"]
 
 [dependencies]
 futures-core-preview = { version = "0.3.0-alpha.16", default-features = false }
 lock_api = "0.2"
-parking_lot = "0.8"
+parking_lot = { version = "0.8", optional = true }
 
 [dev-dependencies]
 futures-preview = { version = "0.3.0-alpha.16", default-features = true, features=["async-await", "nightly"] }
