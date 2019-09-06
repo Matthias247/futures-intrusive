@@ -1,5 +1,3 @@
-#![feature(async_await)]
-
 use futures::future::{Future, FusedFuture};
 use futures::task::Context;
 use futures_intrusive::timer::{
@@ -26,7 +24,7 @@ macro_rules! gen_timer_tests {
                 pin_mut!(fut);
                 assert!(fut.as_mut().poll(cx).is_pending());
                 assert_eq!(Some(999), timer.next_expiration());
-                
+
                 let fut2 = timer.delay(Duration::from_millis(300));
                 pin_mut!(fut2);
                 assert!(fut2.as_mut().poll(cx).is_pending());

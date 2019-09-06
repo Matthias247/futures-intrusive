@@ -1,4 +1,4 @@
-#![feature(async_await)]
+#![feature(async_closure)]
 
 use futures::future::{Future, FusedFuture};
 use futures::task::{Context, Poll};
@@ -514,7 +514,7 @@ macro_rules! gen_mpmc_tests {
 
                     assert_send(cx, &channel, 2);
                     assert_send(cx, &channel, 3);
-                    assert_eq!(count, 3);;
+                    assert_eq!(count, 3);
                     assert_receive_done(cx, &mut poll3.as_mut(), Some(2));
                     assert_receive_done(cx, &mut poll5.as_mut(), Some(3));
                 }
