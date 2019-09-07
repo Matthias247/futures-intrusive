@@ -1,5 +1,3 @@
-#![feature(async_await)]
-
 use futures::future::{Future, FusedFuture};
 use futures::task::{Context, Poll};
 use futures_intrusive::channel::{LocalOneshotChannel, ChannelSendError};
@@ -162,7 +160,7 @@ macro_rules! gen_oneshot_tests {
                     assert!(poll3.as_mut().poll(cx).is_pending());
                     assert!(poll5.as_mut().poll(cx).is_pending());
 
-                    assert_eq!(count, 0);;
+                    assert_eq!(count, 0);
                     channel.send(7).unwrap();
                     assert_eq!(count, 3);
 

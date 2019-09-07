@@ -1,5 +1,3 @@
-#![feature(async_await)]
-
 use futures::{join, FutureExt};
 use futures::{
     channel::mpsc,

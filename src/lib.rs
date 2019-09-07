@@ -136,7 +136,6 @@
 //! The following example demonstrates this use-case:
 //!
 //! ```
-//! # #![feature(async_await)]
 //! # use futures::join;
 //! # use futures_intrusive::sync::LocalManualResetEvent;
 //! async fn async_fn() {

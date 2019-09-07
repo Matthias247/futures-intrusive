@@ -3,7 +3,6 @@
 //! which uses async tasks and futures_intrusive primitives in order to
 //! simulate philosophers.
 
-#![feature(async_await)]
 #![recursion_limit="256"]
 
 use futures_intrusive::{

@@ -1,5 +1,3 @@
-#![feature(async_await)]
-
 use futures::future::{Future, FusedFuture};
 use futures::task::Context;
 use futures_intrusive::sync::{LocalManualResetEvent};

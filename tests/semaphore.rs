@@ -1,5 +1,3 @@
-#![feature(async_await)]
-
 use futures::future::{Future, FusedFuture};
 use futures::task::{Context, Poll};
 use futures_intrusive::sync::LocalSemaphore;
