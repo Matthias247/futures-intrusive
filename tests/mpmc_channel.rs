@@ -671,6 +671,49 @@ mod if_std {
 
     gen_mpmc_tests!(mpmc_channel_tests, Channel);
 
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn channel_futures_are_send() {
+        let channel = Channel::<i32, [i32; 3]>::new();
+        is_sync(&channel);
+        {
+            let recv_fut = channel.receive();
+            is_send(&recv_fut);
+            pin_mut!(recv_fut);
+            is_send(&recv_fut);
+            let send_fut = channel.send(3);
+            is_send(&send_fut);
+            pin_mut!(send_fut);
+            is_send(&send_fut);
+        }
+        is_send_value(channel);
+    }
+
+    #[test]
+    fn shared_channel_futures_are_send() {
+        let (sender, receiver) = channel::<i32>(1);
+        is_sync(&sender);
+        is_sync(&receiver);
+        is_send_value(sender.clone());
+        is_send_value(receiver.clone());
+        let recv_fut = receiver.receive();
+        is_send(&recv_fut);
+        pin_mut!(recv_fut);
+        is_send(&recv_fut);
+        let send_fut = sender.send(3);
+        is_send(&send_fut);
+        pin_mut!(send_fut);
+        is_send(&send_fut);
+    }
+
     // Check if SharedChannel can be used in traits
     pub trait Stream {
         type Output;
@@ -690,7 +733,7 @@ mod if_std {
     impl<T> Stream for Receiver<T>
     where T: 'static {
         type Output = Option<T>;
-        type Next = ChannelReceiveFuture<T>;
+        type Next = ChannelReceiveFuture<parking_lot::RawMutex, T>;
 
         fn next(&self) -> Self::Next {
             self.receive()
@@ -701,7 +744,7 @@ mod if_std {
     where T: 'static {
         type Input = T;
         type Error = ChannelSendError<T>;
-        type Next = ChannelSendFuture<T>;
+        type Next = ChannelSendFuture<parking_lot::RawMutex, T>;
 
         fn send(&self, value: T) -> Self::Next {
             self.send(value)

@@ -232,6 +232,50 @@ mod if_std {
 
     gen_oneshot_tests!(oneshot_channel_tests, OneshotChannel);
 
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn channel_futures_are_send() {
+        let channel = OneshotChannel::<i32>::new();
+        is_sync(&channel);
+        {
+            let recv_fut = channel.receive();
+            is_send(&recv_fut);
+            pin_mut!(recv_fut);
+            is_send(&recv_fut);
+            let send_fut = channel.send(3);
+            is_send(&send_fut);
+            pin_mut!(send_fut);
+            is_send(&send_fut);
+        }
+        is_send_value(channel);
+    }
+
+    #[test]
+    fn shared_channel_futures_are_send() {
+        let (sender, receiver) = oneshot_channel::<i32>();
+        is_sync(&sender);
+        is_sync(&receiver);
+        let recv_fut = receiver.receive();
+        is_send(&recv_fut);
+        pin_mut!(recv_fut);
+        is_send(&recv_fut);
+        let send_fut = sender.send(3);
+        is_send(&send_fut);
+        pin_mut!(send_fut);
+        is_send(&send_fut);
+
+        is_send_value(sender);
+        is_send_value(receiver);
+    }
+
     #[test]
     fn dropping_shared_channel_senders_closes_channel() {
         let (waker, _) = new_count_waker();

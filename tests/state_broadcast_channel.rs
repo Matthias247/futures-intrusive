@@ -312,6 +312,51 @@ mod if_std {
 
     gen_state_broadcast_tests!(state_broadcast_channel_tests, StateBroadcastChannel);
 
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn channel_futures_are_send() {
+        let channel = StateBroadcastChannel::<i32>::new();
+        is_sync(&channel);
+        {
+            let state_id = StateId::new();
+            let recv_fut = channel.receive(state_id);
+            is_send(&recv_fut);
+            pin_mut!(recv_fut);
+            is_send(&recv_fut);
+            let send_fut = channel.send(3);
+            is_send(&send_fut);
+            pin_mut!(send_fut);
+            is_send(&send_fut);
+        }
+        is_send_value(channel);
+    }
+
+    #[test]
+    fn shared_channel_futures_are_send() {
+        let (sender, receiver) = state_broadcast_channel::<i32>();
+        is_sync(&sender);
+        is_sync(&receiver);
+        is_send_value(sender.clone());
+        is_send_value(receiver.clone());
+        let state_id = StateId::new();
+        let recv_fut = receiver.receive(state_id);
+        is_send(&recv_fut);
+        pin_mut!(recv_fut);
+        is_send(&recv_fut);
+        let send_fut = sender.send(3);
+        is_send(&send_fut);
+        pin_mut!(send_fut);
+        is_send(&send_fut);
+    }
+
     #[test]
     fn dropping_shared_channel_senders_closes_channel() {
         let (waker, _) = new_count_waker();

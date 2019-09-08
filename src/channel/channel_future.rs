@@ -1,5 +1,6 @@
 use futures_core::future::{Future, FusedFuture};
 use futures_core::task::{Context, Poll, Waker};
+use core::marker::PhantomData;
 use core::pin::Pin;
 use crate::intrusive_singly_linked_list::{ListNode};
 use super::ChannelSendError;
@@ -108,23 +109,28 @@ pub trait ChannelReceiveAccess<T> {
 /// If the channels gets closed and no items are still enqueued inside the
 /// channel, the future will resolve to `None`.
 #[must_use = "futures do nothing unless polled"]
-pub struct ChannelReceiveFuture<'a, T>
-{
+pub struct ChannelReceiveFuture<'a, MutexType, T> {
     /// The channel that is associated with this ChannelReceiveFuture
     pub(crate) channel: Option<&'a dyn ChannelReceiveAccess<T>>,
     /// Node for waiting on the channel
     pub(crate) wait_node: ListNode<RecvWaitQueueEntry>,
+    /// Marker for mutex type
+    pub(crate) _phantom: PhantomData<MutexType>,
 }
 
-impl<'a, T> core::fmt::Debug for ChannelReceiveFuture<'a, T> {
+// Safety: Channel futures can be sent between threads as long as the underlying
+// channel is thread-safe (Sync), which allows to poll/register/unregister from
+// a different thread.
+unsafe impl<'a, MutexType: Sync, T: Send> Send for ChannelReceiveFuture<'a, MutexType, T> {}
+
+impl<'a, MutexType, T> core::fmt::Debug for ChannelReceiveFuture<'a, MutexType, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ChannelReceiveFuture")
             .finish()
     }
 }
 
-impl<'a, T> Future for ChannelReceiveFuture<'a, T>
-{
+impl<'a, MutexType, T> Future for ChannelReceiveFuture<'a, MutexType, T> {
     type Output = Option<T>;
 
     fn poll(
@@ -137,7 +143,7 @@ impl<'a, T> Future for ChannelReceiveFuture<'a, T>
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside ChannelReceiveFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut ChannelReceiveFuture<T> = unsafe {
+        let mut_self: &mut ChannelReceiveFuture<MutexType, T> = unsafe {
             Pin::get_unchecked_mut(self)
         };
 
@@ -156,13 +162,13 @@ impl<'a, T> Future for ChannelReceiveFuture<'a, T>
     }
 }
 
-impl<'a, T> FusedFuture for ChannelReceiveFuture<'a, T> {
+impl<'a, MutexType, T> FusedFuture for ChannelReceiveFuture<'a, MutexType, T> {
     fn is_terminated(&self) -> bool {
         self.channel.is_none()
     }
 }
 
-impl<'a, T> Drop for ChannelReceiveFuture<'a, T> {
+impl<'a, MutexType, T> Drop for ChannelReceiveFuture<'a, MutexType, T> {
     fn drop(&mut self) {
         // If this ChannelReceiveFuture has been polled and it was added to the
         // wait queue at the channel, it must be removed before dropping.
@@ -179,22 +185,28 @@ impl<'a, T> Drop for ChannelReceiveFuture<'a, T> {
 /// If the channel gets closed the send operation will fail, and the
 /// Future will resolve to `ChannelSendError(T)` and return the item to send.
 #[must_use = "futures do nothing unless polled"]
-pub struct ChannelSendFuture<'a, T>
-{
+pub struct ChannelSendFuture<'a, MutexType, T> {
     /// The Channel that is associated with this ChannelSendFuture
     pub(crate) channel: Option<&'a dyn ChannelSendAccess<T>>,
     /// Node for waiting on the channel
     pub(crate) wait_node: ListNode<SendWaitQueueEntry<T>>,
+    /// Marker for mutex type
+    pub(crate) _phantom: PhantomData<MutexType>,
 }
 
-impl<'a, T> core::fmt::Debug for ChannelSendFuture<'a, T> {
+// Safety: Channel futures can be sent between threads as long as the underlying
+// channel is thread-safe (Sync), which allows to poll/register/unregister from
+// a different thread.
+unsafe impl<'a, MutexType: Sync, T: Send> Send for ChannelSendFuture<'a, MutexType, T> {}
+
+impl<'a, MutexType, T> core::fmt::Debug for ChannelSendFuture<'a, MutexType, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ChannelSendFuture")
             .finish()
     }
 }
 
-impl<'a, T> ChannelSendFuture<'a, T> {
+impl<'a, MutexType, T> ChannelSendFuture<'a, MutexType, T> {
     /// Tries to cancel the ongoing send operation
     pub fn cancel(&mut self) -> Option<T> {
         let channel = self.channel.take();
@@ -208,7 +220,7 @@ impl<'a, T> ChannelSendFuture<'a, T> {
     }
 }
 
-impl<'a, T> Future for ChannelSendFuture<'a, T> {
+impl<'a, MutexType, T> Future for ChannelSendFuture<'a, MutexType, T> {
     type Output = Result<(), ChannelSendError<T>>;
 
     fn poll(
@@ -221,7 +233,7 @@ impl<'a, T> Future for ChannelSendFuture<'a, T> {
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside ChannelSendFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut ChannelSendFuture<T> = unsafe {
+        let mut_self: &mut ChannelSendFuture<MutexType, T> = unsafe {
             Pin::get_unchecked_mut(self)
         };
 
@@ -250,13 +262,13 @@ impl<'a, T> Future for ChannelSendFuture<'a, T> {
     }
 }
 
-impl<'a, T> FusedFuture for ChannelSendFuture<'a, T> {
+impl<'a, MutexType, T> FusedFuture for ChannelSendFuture<'a, MutexType, T> {
     fn is_terminated(&self) -> bool {
         self.channel.is_none()
     }
 }
 
-impl<'a, T> Drop for ChannelSendFuture<'a, T> {
+impl<'a, MutexType, T> Drop for ChannelSendFuture<'a, MutexType, T> {
     fn drop(&mut self) {
         // If this ChannelSendFuture has been polled and it was added to the
         // wait queue at the channel, it must be removed before dropping.
@@ -283,21 +295,28 @@ mod if_alloc {
         /// If the channels gets closed and no items are still enqueued inside the
         /// channel, the future will resolve to `None`.
         #[must_use = "futures do nothing unless polled"]
-        pub struct ChannelReceiveFuture<T> {
+        pub struct ChannelReceiveFuture<MutexType, T> {
             /// The Channel that is associated with this ChannelReceiveFuture
             pub(crate) channel: Option<std::sync::Arc<dyn ChannelReceiveAccess<T>>>,
             /// Node for waiting on the channel
             pub(crate) wait_node: ListNode<RecvWaitQueueEntry>,
+            /// Marker for mutex type
+            pub(crate) _phantom: PhantomData<MutexType>,
         }
 
-        impl<T> core::fmt::Debug for ChannelReceiveFuture<T> {
+        // Safety: Channel futures can be sent between threads as long as the underlying
+        // channel is thread-safe (Sync), which allows to poll/register/unregister from
+        // a different thread.
+        unsafe impl<MutexType: Sync, T: Send> Send for ChannelReceiveFuture<MutexType, T> {}
+
+        impl<MutexType, T> core::fmt::Debug for ChannelReceiveFuture<MutexType, T> {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("ChannelReceiveFuture")
                     .finish()
             }
         }
 
-        impl<T> Future for ChannelReceiveFuture<T> {
+        impl<MutexType, T> Future for ChannelReceiveFuture<MutexType, T> {
             type Output = Option<T>;
 
             fn poll(
@@ -310,7 +329,7 @@ mod if_alloc {
                 // Safety: The next operations are safe, because Pin promises us that
                 // the address of the wait queue entry inside ChannelReceiveFuture is stable,
                 // and we don't move any fields inside the future until it gets dropped.
-                let mut_self: &mut ChannelReceiveFuture<T> = unsafe {
+                let mut_self: &mut ChannelReceiveFuture<MutexType, T> = unsafe {
                     Pin::get_unchecked_mut(self)
                 };
 
@@ -333,13 +352,13 @@ mod if_alloc {
             }
         }
 
-        impl<T> FusedFuture for ChannelReceiveFuture<T> {
+        impl<MutexType, T> FusedFuture for ChannelReceiveFuture<MutexType, T> {
             fn is_terminated(&self) -> bool {
                 self.channel.is_none()
             }
         }
 
-        impl<T> Drop for ChannelReceiveFuture<T> {
+        impl<MutexType, T> Drop for ChannelReceiveFuture<MutexType, T> {
             fn drop(&mut self) {
                 // If this ChannelReceiveFuture has been polled and it was added to the
                 // wait queue at the channel, it must be removed before dropping.
@@ -357,21 +376,28 @@ mod if_alloc {
         /// Future will resolve to `ChannelSendError(T)` and return the item
         /// to send.
         #[must_use = "futures do nothing unless polled"]
-        pub struct ChannelSendFuture<T> {
+        pub struct ChannelSendFuture<MutexType, T> {
             /// The LocalChannel that is associated with this ChannelSendFuture
             pub(crate) channel: Option<std::sync::Arc<dyn ChannelSendAccess<T>>>,
             /// Node for waiting on the channel
             pub(crate) wait_node: ListNode<SendWaitQueueEntry<T>>,
+            /// Marker for mutex type
+            pub(crate) _phantom: PhantomData<MutexType>,
         }
 
-        impl<T> core::fmt::Debug for ChannelSendFuture<T> {
+        // Safety: Channel futures can be sent between threads as long as the underlying
+        // channel is thread-safe (Sync), which allows to poll/register/unregister from
+        // a different thread.
+        unsafe impl<MutexType: Sync, T: Send> Send for ChannelSendFuture<MutexType, T> {}
+
+        impl<MutexType, T> core::fmt::Debug for ChannelSendFuture<MutexType, T> {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("ChannelSendFuture")
                     .finish()
             }
         }
 
-        impl<T> Future for ChannelSendFuture<T> {
+        impl<MutexType, T> Future for ChannelSendFuture<MutexType, T> {
             type Output = Result<(), ChannelSendError<T>>;
 
             fn poll(
@@ -384,7 +410,7 @@ mod if_alloc {
                 // Safety: The next operations are safe, because Pin promises us that
                 // the address of the wait queue entry inside ChannelSendFuture is stable,
                 // and we don't move any fields inside the future until it gets dropped.
-                let mut_self: &mut ChannelSendFuture<T> = unsafe {
+                let mut_self: &mut ChannelSendFuture<MutexType, T> = unsafe {
                     Pin::get_unchecked_mut(self)
                 };
 
@@ -414,13 +440,13 @@ mod if_alloc {
             }
         }
 
-        impl<T> FusedFuture for ChannelSendFuture<T> {
+        impl<MutexType, T> FusedFuture for ChannelSendFuture<MutexType, T> {
             fn is_terminated(&self) -> bool {
                 self.channel.is_none()
             }
         }
 
-        impl<T> Drop for ChannelSendFuture<T> {
+        impl<MutexType, T> Drop for ChannelSendFuture<MutexType, T> {
             fn drop(&mut self) {
                 // If this ChannelSendFuture has been polled and it was added to the
                 // wait queue at the channel, it must be removed before dropping.
