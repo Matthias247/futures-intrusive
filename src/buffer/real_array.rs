@@ -17,7 +17,9 @@
 /// use futures_intrusive::channel::Channel;
 ///
 /// struct I32x384Array([i32; 384]);
-/// unsafe impl RealArray<i32> for I32x384Array {}
+/// unsafe impl RealArray<i32> for I32x384Array {
+///     const LEN: usize = 384;
+/// }
 ///
 /// impl AsMut<[i32]> for I32x384Array {
 ///     fn as_mut(&mut self) -> &mut [i32] {
@@ -36,12 +38,17 @@
 /// }
 ///
 /// ```
-pub unsafe trait RealArray<T> {}
+pub unsafe trait RealArray<T> {
+    /// The length of the array
+    const LEN: usize;
+}
 
 macro_rules! real_array {
     ($($N:expr),+) => {
         $(
-            unsafe impl<T> RealArray<T> for [T; $N] {}
+            unsafe impl<T> RealArray<T> for [T; $N] {
+                const LEN: usize = $N;
+            }
         )+
     }
 }

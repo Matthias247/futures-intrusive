@@ -98,9 +98,7 @@ where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
 
     #[inline]
     fn capacity(&self) -> usize {
-        // Safety: Since len() only queries a static property of the array type
-        // and doesn't actually touch the uninitialized memory this is safe.
-        unsafe { (&*self.buffer.as_ptr()).as_ref().len() }
+        A::LEN
     }
 
     #[inline]
