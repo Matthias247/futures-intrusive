@@ -1,5 +1,3 @@
-#![feature(async_closure)]
-
 use futures::future::{Future, FusedFuture};
 use futures::task::{Context, Poll};
 use futures_intrusive::channel::{LocalChannel, ChannelSendError};
@@ -727,13 +725,13 @@ mod if_std {
 
         let (sender, receiver) = channel::<i32>(5);
 
-        let stream = async move || {
+        let stream = || async move {
             send_stream(&sender, 2).await;
             send_stream(&sender, 7).await;
             sender.close();
         };
 
-        let drain = async move || {
+        let drain = || async move {
             let mut sum = 0;
             loop {
                 match read_stream(&receiver).await {
