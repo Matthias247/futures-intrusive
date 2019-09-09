@@ -541,7 +541,41 @@ gen_semaphore_tests!(local_semaphore_tests, LocalSemaphore);
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
+    use futures::FutureExt;
     use futures_intrusive::sync::Semaphore;
 
     gen_semaphore_tests!(semaphore_tests, Semaphore);
+
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn semaphore_futures_are_send() {
+        let sem = Semaphore::new(true, 3);
+        is_sync(&sem);
+        {
+            let wait_fut = sem.acquire(3);
+            is_send(&wait_fut);
+            pin_mut!(wait_fut);
+            is_send(&wait_fut);
+
+            let waker = &panic_waker();
+            let cx = &mut Context::from_waker(&waker);
+            pin_mut!(wait_fut);
+            let res = wait_fut.poll_unpin(cx);
+            let releaser = match res {
+                Poll::Ready(v) => v,
+                Poll::Pending => panic!("Expected to be ready"),
+            };
+            is_send(&releaser);
+            is_send_value(releaser);
+        }
+        is_send_value(sem);
+    }
 }

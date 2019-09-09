@@ -410,7 +410,41 @@ gen_mutex_tests!(local_mutex_tests, LocalMutex);
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
+    use futures::FutureExt;
     use futures_intrusive::sync::{Mutex};
 
     gen_mutex_tests!(mutex_tests, Mutex);
+
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn mutex_futures_are_send() {
+        let mutex = Mutex::new(true, true);
+        is_sync(&mutex);
+        {
+            let lock_fut = mutex.lock();
+            is_send(&lock_fut);
+            pin_mut!(lock_fut);
+            is_send(&lock_fut);
+
+            let waker = &panic_waker();
+            let cx = &mut Context::from_waker(&waker);
+            pin_mut!(lock_fut);
+            let res = lock_fut.poll_unpin(cx);
+            let guard = match res {
+                Poll::Ready(v) => v,
+                Poll::Pending => panic!("Expected to be ready"),
+            };
+            is_send(&guard);
+            is_send_value(guard);
+        }
+        is_send_value(mutex);
+    }
 }

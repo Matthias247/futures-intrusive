@@ -143,6 +143,28 @@ mod if_std {
 
     gen_event_tests!(manual_reset_event_tests, ManualResetEvent);
 
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn event_futures_are_send() {
+        let event = ManualResetEvent::new(false);
+        is_sync(&event);
+        {
+            let wait_fut = event.wait();
+            is_send(&wait_fut);
+            pin_mut!(wait_fut);
+            is_send(&wait_fut);
+        }
+        is_send_value(event);
+    }
+
     #[test]
     fn multithreaded_smoke() {
         let event = Arc::new(ManualResetEvent::new(false));

@@ -280,6 +280,11 @@ pub struct GenericMutexLockFuture<'a, MutexType: RawMutex, T: 'a> {
     wait_node: ListNode<WaitQueueEntry>,
 }
 
+// Safety: Futures can be sent between threads as long as the underlying
+// mutex is thread-safe (Sync), which allows to poll/register/unregister from
+// a different thread.
+unsafe impl<'a, MutexType: RawMutex + Sync, T: 'a> Send for GenericMutexLockFuture<'a, MutexType, T> {}
+
 impl<'a, MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
 for GenericMutexLockFuture<'a, MutexType, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -351,6 +356,8 @@ pub struct GenericMutex<MutexType: RawMutex, T> {
 // It is safe to send mutexes between threads, as long as they are not used and
 // thereby borrowed
 unsafe impl<T: Send, MutexType: RawMutex + Send> Send for GenericMutex<MutexType, T> {}
+// The mutex is thread-safe as long as the utilized mutex is thread-safe
+unsafe impl<T: Send, MutexType: RawMutex + Sync> Sync for GenericMutex<MutexType, T> {}
 
 impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug for GenericMutex<MutexType, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -431,9 +438,6 @@ mod if_std {
     pub type MutexGuard<'a, T> = GenericMutexGuard<'a, parking_lot::RawMutex, T>;
     /// A [`GenericMutexLockFuture`] for [`Mutex`].
     pub type MutexLockFuture<'a, T> = GenericMutexLockFuture<'a, parking_lot::RawMutex, T>;
-
-    // The Mutex is thread-safe
-    unsafe impl<T: Send> Sync for Mutex<T> {} // TODO: Not sync?
 }
 
 #[cfg(feature = "std")]

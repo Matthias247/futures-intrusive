@@ -331,6 +331,11 @@ pub struct GenericSemaphoreAcquireFuture<'a, MutexType: RawMutex> {
     auto_release: bool,
 }
 
+// Safety: Futures can be sent between threads as long as the underlying
+// semaphore is thread-safe (Sync), which allows to poll/register/unregister from
+// a different thread.
+unsafe impl<'a, MutexType: RawMutex + Sync> Send for GenericSemaphoreAcquireFuture<'a, MutexType> {}
+
 impl<'a, MutexType: RawMutex> core::fmt::Debug
 for GenericSemaphoreAcquireFuture<'a, MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -413,6 +418,8 @@ pub struct GenericSemaphore<MutexType: RawMutex> {
 // It is safe to send semaphores between threads, as long as they are not used and
 // thereby borrowed
 unsafe impl<MutexType: RawMutex + Send> Send for GenericSemaphore<MutexType> {}
+// The Semaphore is thread-safe as long as the utilized Mutex is thread-safe
+unsafe impl<MutexType: RawMutex + Sync> Sync for GenericSemaphore<MutexType> {}
 
 impl<MutexType: RawMutex> core::fmt::Debug for GenericSemaphore<MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -521,9 +528,6 @@ mod if_std {
     pub type SemaphoreReleaser<'a> = GenericSemaphoreReleaser<'a, parking_lot::RawMutex>;
     /// A [`GenericSemaphoreAcquireFuture`] for [`Semaphore`].
     pub type SemaphoreAcquireFuture<'a> = GenericSemaphoreAcquireFuture<'a, parking_lot::RawMutex>;
-
-    // The Semaphore is thread-safe
-    unsafe impl Sync for Semaphore {}
 }
 
 #[cfg(feature = "std")]
