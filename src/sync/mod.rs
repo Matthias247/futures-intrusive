@@ -6,13 +6,13 @@
 mod manual_reset_event;
 
 pub use self::manual_reset_event::{
-    GenericManualResetEvent, WaitForEventFuture,
-    LocalManualResetEvent,
+    GenericManualResetEvent, GenericWaitForEventFuture,
+    LocalManualResetEvent, LocalWaitForEventFuture,
 };
 
 #[cfg(feature = "std")]
 pub use self::manual_reset_event::{
-    ManualResetEvent,
+    ManualResetEvent, WaitForEventFuture,
 };
 
 mod mutex;

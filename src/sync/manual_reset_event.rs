@@ -2,7 +2,6 @@
 
 use futures_core::future::{Future, FusedFuture};
 use futures_core::task::{Context, Poll, Waker};
-use core::marker::PhantomData;
 use core::pin::Pin;
 use lock_api::{RawMutex, Mutex};
 use crate::NoopLock;
@@ -189,28 +188,13 @@ impl<MutexType: RawMutex> GenericManualResetEvent<MutexType> {
     }
 
     /// Returns a future that gets fulfilled when the event is set.
-    pub fn wait(&self) -> WaitForEventFuture<MutexType> {
-        WaitForEventFuture {
+    pub fn wait(&self) -> GenericWaitForEventFuture<MutexType> {
+        GenericWaitForEventFuture {
             event: Some(self),
             wait_node: ListNode::new(WaitQueueEntry::new()),
-            _phantom: PhantomData,
         }
     }
-}
 
-/// Adapter trait that allows Futures to generically interact with event
-/// implementations via dynamic dispatch.
-trait EventAccess {
-    unsafe fn try_wait(
-        &self,
-        wait_node: &mut ListNode<WaitQueueEntry>,
-        cx: &mut Context<'_>,
-    ) -> Poll<()>;
-
-    fn remove_waiter(&self, wait_node: &mut ListNode<WaitQueueEntry>);
-}
-
-impl<MutexType: RawMutex> EventAccess for GenericManualResetEvent<MutexType> {
     unsafe fn try_wait(
         &self,
         wait_node: &mut ListNode<WaitQueueEntry>,
@@ -226,28 +210,26 @@ impl<MutexType: RawMutex> EventAccess for GenericManualResetEvent<MutexType> {
 
 /// A Future that is resolved once the corresponding ManualResetEvent has been set
 #[must_use = "futures do nothing unless polled"]
-pub struct WaitForEventFuture<'a, MutexType> {
+pub struct GenericWaitForEventFuture<'a, MutexType: RawMutex> {
     /// The ManualResetEvent that is associated with this WaitForEventFuture
-    event: Option<&'a dyn EventAccess>,
+    event: Option<&'a GenericManualResetEvent<MutexType>>,
     /// Node for waiting at the event
     wait_node: ListNode<WaitQueueEntry>,
-    /// Marker for mutex type
-    pub(crate) _phantom: PhantomData<MutexType>,
 }
 
 // Safety: Futures can be sent between threads as long as the underlying
 // event is thread-safe (Sync), which allows to poll/register/unregister from
 // a different thread.
-unsafe impl<'a, MutexType: Sync> Send for WaitForEventFuture<'a, MutexType> {}
+unsafe impl<'a, MutexType: RawMutex + Sync> Send for GenericWaitForEventFuture<'a, MutexType> {}
 
-impl<'a, MutexType> core::fmt::Debug for WaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> core::fmt::Debug for GenericWaitForEventFuture<'a, MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("WaitForEventFuture")
+        f.debug_struct("GenericWaitForEventFuture")
             .finish()
     }
 }
 
-impl<'a, MutexType> Future for WaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> Future for GenericWaitForEventFuture<'a, MutexType> {
     type Output = ();
 
     fn poll(
@@ -260,7 +242,7 @@ impl<'a, MutexType> Future for WaitForEventFuture<'a, MutexType> {
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside MutexLocalFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut WaitForEventFuture<MutexType> = unsafe {
+        let mut_self: &mut GenericWaitForEventFuture<MutexType> = unsafe {
             Pin::get_unchecked_mut(self)
         };
 
@@ -279,13 +261,13 @@ impl<'a, MutexType> Future for WaitForEventFuture<'a, MutexType> {
     }
 }
 
-impl<'a, MutexType> FusedFuture for WaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> FusedFuture for GenericWaitForEventFuture<'a, MutexType> {
     fn is_terminated(&self) -> bool {
         self.event.is_none()
     }
 }
 
-impl<'a, MutexType> Drop for WaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> Drop for GenericWaitForEventFuture<'a, MutexType> {
     fn drop(&mut self) {
         // If this WaitForEventFuture has been polled and it was added to the
         // wait queue at the event, it must be removed before dropping.
@@ -300,6 +282,8 @@ impl<'a, MutexType> Drop for WaitForEventFuture<'a, MutexType> {
 
 /// A [`LocalManualResetEvent`] which is not thread-safe.
 pub type LocalManualResetEvent = GenericManualResetEvent<NoopLock>;
+/// A [`GenericWaitForEventFuture`] for [`LocalManualResetEvent`].
+pub type LocalWaitForEventFuture<'a> = GenericWaitForEventFuture<'a, NoopLock>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -309,6 +293,8 @@ mod if_std {
 
     /// A [`LocalManualResetEvent`] implementation backed by [`parking_lot`].
     pub type ManualResetEvent = GenericManualResetEvent<parking_lot::RawMutex>;
+    /// A [`GenericWaitForEventFuture`] for [`ManualResetEvent`].
+    pub type WaitForEventFuture<'a> = GenericWaitForEventFuture<'a, parking_lot::RawMutex>;
 }
 
 #[cfg(feature = "std")]
