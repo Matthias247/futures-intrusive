@@ -29,6 +29,7 @@ pin-utils = "0.1.0-alpha.4"
 criterion = "0.3.0"
 lazy_static = "1.4.0"
 rand = "0.7"
+tokio = "0.2.0-alpha.4" # For channel benchmarks
 
 [[bench]]
 name = "mpmc_channel"
