@@ -118,7 +118,7 @@ async fn philosopher_task<'a>(name: &'a str, left_fork: &'a Fork, right_fork: &'
 }
 
 async fn simulate_philosophers() {
-    // Create the forks for the philosphers
+    // Create the forks for the philosophers
     let forks: [Fork; 5] = [
         Fork::new((), true),
         Fork::new((), true),
@@ -141,7 +141,7 @@ fn main() {
     // Spawn a background thread which advances the timer
     let join_handle = spawn(move || { timer_thread(); });
 
-    // And simulate the philosphers
+    // And simulate the philosophers
     block_on(simulate_philosophers());
 
     // Stop the timer thread
