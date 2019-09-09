@@ -1,15 +1,16 @@
 use futures::future::{Future, FusedFuture};
 use futures::task::Context;
 use futures_intrusive::timer::{
-    MockClock, LocalTimerService, Timer};
+    MockClock, LocalTimerService};
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 use core::time::Duration;
 
 macro_rules! gen_timer_tests {
-    ($mod_name:ident, $timer_type:ident) => {
+    ($mod_name:ident, $timer_type:ident, $timer_trait_type:ident) => {
         mod $mod_name {
             use super::*;
+            use futures_intrusive::timer::$timer_trait_type;
 
             #[test]
             fn start_and_expire_timers() {
@@ -90,7 +91,7 @@ macro_rules! gen_timer_tests {
                 let (waker, _count) = new_count_waker();
                 let cx = &mut Context::from_waker(&waker);
 
-                let mut inner = |dyn_timer: &dyn Timer| {
+                let mut inner = |dyn_timer: &dyn $timer_trait_type| {
                     let fut = dyn_timer.delay(Duration::from_millis(10));
                     pin_mut!(fut);
                     assert!(fut.as_mut().poll(cx).is_pending());
@@ -203,12 +204,40 @@ macro_rules! gen_timer_tests {
     }
 }
 
-gen_timer_tests!(local_timer_service_tests, LocalTimerService);
+gen_timer_tests!(local_timer_service_tests, LocalTimerService, LocalTimer);
 
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use futures_intrusive::timer::{TimerService};
+    use futures_intrusive::timer::{TimerService, Timer};
 
-    gen_timer_tests!(timer_service_tests, TimerService);
+    gen_timer_tests!(timer_service_tests, TimerService, Timer);
+
+    fn is_send<T: Send>(_: &T) {
+    }
+
+    fn is_send_value<T: Send>(_: T) {
+    }
+
+    fn is_sync<T: Sync>(_: &T) {
+    }
+
+    #[test]
+    fn timer_futures_are_send() {
+        static TEST_CLOCK: MockClock = MockClock::new();
+        TEST_CLOCK.set_time(2300);
+        let timer = TimerService::new(&TEST_CLOCK);
+        is_sync(&timer);
+        {
+            let deadline = timer.deadline(2400);
+            is_send(&deadline);
+            pin_mut!(deadline);
+            is_send(&deadline);
+            let delay_fut = timer.delay(Duration::from_millis(1000));
+            is_send(&delay_fut);
+            pin_mut!(delay_fut);
+            is_send(&delay_fut);
+        }
+        is_send_value(timer);
+    }
 }

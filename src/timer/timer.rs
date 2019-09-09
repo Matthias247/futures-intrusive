@@ -173,7 +173,23 @@ trait TimerAccess {
     fn remove_waiter(&self, wait_node: &mut ListNode<TimerQueueEntry>);
 }
 
-/// An asynchronously awaitable timer.
+/// An asynchronously awaitable timer which is bound to a thread.
+///
+/// The timer operates on millisecond precision and makes use of a configurable
+/// clock source.
+///
+/// The timer allows to wait asynchronously either for a certain duration,
+/// or until the provided [`Clock`] reaches a certain timestamp.
+pub trait LocalTimer {
+    /// Returns a future that gets fulfilled after the given `Duration`
+    fn delay(&self, delay: Duration) -> LocalTimerFuture;
+
+    /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
+    /// the given timestamp.
+    fn deadline(&self, timestamp: u64) -> LocalTimerFuture;
+}
+
+/// An asynchronously awaitable thread-safe timer.
 ///
 /// The timer operates on millisecond precision and makes use of a configurable
 /// clock source.
@@ -209,7 +225,9 @@ pub struct GenericTimerService<MutexType: RawMutex> {
 }
 
 // The timer can be sent to other threads as long as it's not borrowed
-unsafe impl<MutexType: RawMutex+Send> Send for GenericTimerService<MutexType> {}
+unsafe impl<MutexType: RawMutex + Send> Send for GenericTimerService<MutexType> {}
+// The timer is thread-safe as long as it uses a thread-safe mutex
+unsafe impl<MutexType: RawMutex + Sync> Sync for GenericTimerService<MutexType> {}
 
 impl<MutexType: RawMutex> core::fmt::Debug for GenericTimerService<MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -251,28 +269,49 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
     pub fn check_expirations(&self) {
         self.inner.lock().check_expirations()
     }
-}
 
-impl<MutexType: RawMutex> Timer for GenericTimerService<MutexType> {
-    /// Returns a future that gets fulfilled after the given [`Duration`]
-    fn delay(&self, delay: Duration) -> TimerFuture {
+    /// Returns a deadline based on the current timestamp plus the given Duration
+    fn deadline_from_now(&self, duration: Duration) -> u64 {
         // TODO: Make this more efficient and with better overflow checking
         let now = self.inner.lock().clock.now() as u128;
-        let delay_ms = core::cmp::min(delay.as_millis(), core::u64::MAX as u128);
-        let expiry = core::cmp::min(now + delay_ms, core::u64::MAX as u128) as u64;
+        let duration_ms = core::cmp::min(duration.as_millis(), core::u64::MAX as u128);
+        let expiry = core::cmp::min(now + duration_ms, core::u64::MAX as u128) as u64;
+        expiry
+    }
+}
 
-        TimerFuture {
+impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
+    /// Returns a future that gets fulfilled after the given [`Duration`]
+    fn delay(&self, delay: Duration) -> LocalTimerFuture {
+        let deadline = self.deadline_from_now(delay);
+        LocalTimer::deadline(&*self, deadline)
+    }
+
+    /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
+    /// the given timestamp.
+    fn deadline(&self, timestamp: u64) -> LocalTimerFuture {
+        LocalTimerFuture {
             timer: Some(self),
-            wait_node: ListNode::new(TimerQueueEntry::new(expiry)),
+            wait_node: ListNode::new(TimerQueueEntry::new(timestamp)),
         }
+    }
+}
+
+impl<MutexType: RawMutex> Timer for GenericTimerService<MutexType> where MutexType: Sync {
+    /// Returns a future that gets fulfilled after the given [`Duration`]
+    fn delay(&self, delay: Duration) -> TimerFuture {
+        let deadline = self.deadline_from_now(delay);
+        Timer::deadline(&*self, deadline)
     }
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
     /// the given timestamp.
     fn deadline(&self, timestamp: u64) -> TimerFuture {
         TimerFuture {
-            timer: Some(self),
-            wait_node: ListNode::new(TimerQueueEntry::new(timestamp)),
+            timer_future: LocalTimerFuture {
+                timer: Some(self),
+                wait_node: ListNode::new(TimerQueueEntry::new(timestamp)),
+            }
         }
     }
 }
@@ -293,21 +332,21 @@ impl<MutexType: RawMutex> TimerAccess for GenericTimerService<MutexType> {
 
 /// A Future that is resolved once the requested time has elapsed.
 #[must_use = "futures do nothing unless polled"]
-pub struct TimerFuture<'a> {
+pub struct LocalTimerFuture<'a> {
     /// The Timer that is associated with this TimerFuture
     timer: Option<&'a dyn TimerAccess>,
     /// Node for waiting on the timer
     wait_node: ListNode<TimerQueueEntry>,
 }
 
-impl<'a> core::fmt::Debug for TimerFuture<'a> {
+impl<'a> core::fmt::Debug for LocalTimerFuture<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("TimerFuture")
+        f.debug_struct("LocalTimerFuture")
             .finish()
     }
 }
 
-impl<'a> Future for TimerFuture<'a> {
+impl<'a> Future for LocalTimerFuture<'a> {
     type Output = ();
 
     fn poll(
@@ -320,7 +359,7 @@ impl<'a> Future for TimerFuture<'a> {
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside TimerFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut TimerFuture = unsafe {
+        let mut_self: &mut LocalTimerFuture = unsafe {
             Pin::get_unchecked_mut(self)
         };
 
@@ -339,13 +378,13 @@ impl<'a> Future for TimerFuture<'a> {
     }
 }
 
-impl<'a> FusedFuture for TimerFuture<'a> {
+impl<'a> FusedFuture for LocalTimerFuture<'a> {
     fn is_terminated(&self) -> bool {
         self.timer.is_none()
     }
 }
 
-impl<'a> Drop for TimerFuture<'a> {
+impl<'a> Drop for LocalTimerFuture<'a> {
     fn drop(&mut self) {
         // If this TimerFuture has been polled and it was added to the
         // wait queue at the timer, it must be removed before dropping.
@@ -353,6 +392,46 @@ impl<'a> Drop for TimerFuture<'a> {
         if let Some(timer) = self.timer {
             timer.remove_waiter(&mut self.wait_node);
         }
+    }
+}
+
+/// A Future that is resolved once the requested time has elapsed.
+#[must_use = "futures do nothing unless polled"]
+pub struct TimerFuture<'a> {
+    /// The Timer that is associated with this TimerFuture
+    timer_future: LocalTimerFuture<'a>
+}
+
+// Safety: TimerFutures are only returned by GenericTimerService instances which
+// are thread-safe (RawMutex: Sync).
+unsafe impl<'a> Send for TimerFuture<'a> {}
+
+impl<'a> core::fmt::Debug for TimerFuture<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_struct("TimerFuture")
+            .finish()
+    }
+}
+
+impl<'a> Future for TimerFuture<'a> {
+    type Output = ();
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<()> {
+        // Safety: TimerFuture is a pure wrapper around LocalTimerFuture.
+        // The inner value is never moved
+        let inner_pin = unsafe {
+            Pin::map_unchecked_mut(self, |fut|&mut fut.timer_future)
+        };
+        inner_pin.poll(cx)
+    }
+}
+
+impl<'a> FusedFuture for TimerFuture<'a> {
+    fn is_terminated(&self) -> bool {
+        self.timer_future.is_terminated()
     }
 }
 
@@ -369,8 +448,6 @@ mod if_std {
 
     /// A [`GenericTimerService`] implementation backed by [`parking_lot`].
     pub type TimerService = GenericTimerService<parking_lot::RawMutex>;
-    // The timer is thread-safe and can be sent to other threads.
-    unsafe impl Sync for TimerService {}
 }
 
 #[cfg(feature = "std")]

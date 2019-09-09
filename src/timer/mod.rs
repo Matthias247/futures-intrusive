@@ -18,7 +18,9 @@ pub use self::clock::{
 mod timer;
 
 pub use self::timer::{
-    GenericTimerService, TimerFuture, Timer,
+    GenericTimerService,
+    LocalTimerFuture, TimerFuture,
+    LocalTimer, Timer,
     LocalTimerService,
 };
 
