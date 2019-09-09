@@ -1,5 +1,6 @@
 //! An asynchronously awaitable multi producer multi consumer channel
 
+use core::marker::PhantomData;
 use futures_core::task::{Context, Poll};
 use lock_api::{RawMutex, Mutex};
 use crate::{NoopLock, buffer::{RingBuf, ArrayRingBuf}};
@@ -308,6 +309,9 @@ where A: RingBuf<Item=T> {
 // value in it can be sent to other threads.
 unsafe impl<MutexType: RawMutex + Send, T: Send, A> Send for GenericChannel<MutexType, T, A>
 where A: RingBuf<Item=T> + Send {}
+// The channel is thread-safe as long as a thread-safe mutex is used
+unsafe impl<MutexType: RawMutex + Sync, T: Send, A> Sync for GenericChannel<MutexType, T, A>
+where A: RingBuf<Item=T> {}
 
 impl<MutexType: RawMutex, T, A> core::fmt::Debug for GenericChannel<MutexType, T, A>
 where A: RingBuf<Item=T> {
@@ -341,19 +345,21 @@ where A: RingBuf<Item=T>
     /// the channel.
     /// If the channel gets closed while the send is in progress, sending the
     /// value will fail, and the future will deliver the value back.
-    pub fn send(&self, value: T) -> ChannelSendFuture<T> {
+    pub fn send(&self, value: T) -> ChannelSendFuture<MutexType, T> {
         ChannelSendFuture {
             channel: Some(self),
             wait_node: ListNode::new(SendWaitQueueEntry::new(value)),
+            _phantom: PhantomData,
         }
     }
 
     /// Returns a future that gets fulfilled when a value is written to the channel.
     /// If the channels gets closed, the future will resolve to `None`.
-    pub fn receive(&self) -> ChannelReceiveFuture<T> {
+    pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
         ChannelReceiveFuture {
             channel: Some(self),
             wait_node: ListNode::new(RecvWaitQueueEntry::new()),
+            _phantom: PhantomData,
         }
     }
 
@@ -413,7 +419,6 @@ pub type LocalUnbufferedChannel<T> = LocalChannel<T, ArrayRingBuf<T, [T; 0]>>;
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use crate::buffer::RealArray;
     // Export a thread-safe version using parking_lot::RawMutex
 
     // TODO: We might also want to bind Channel to GenericChannel<..., HeapRingBuf>,
@@ -427,9 +432,6 @@ mod if_std {
 
     /// A [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type Channel<T, A> = GenericChannel<parking_lot::RawMutex, T, ArrayRingBuf<T, A>>;
-    // The channel is thread-safe
-    unsafe impl<T: Send, A> Sync for Channel<T, A>
-    where A: AsMut<[T]> + AsRef<[T]> + RealArray<T> + Sync {}
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, ArrayRingBuf<T, [T; 0]>>;
@@ -529,13 +531,6 @@ mod if_alloc {
             , T: 'static {
             inner: std::sync::Arc<GenericChannelSharedState<MutexType, T>>,
         }
-
-        // The channel can be sent to other threads as long as it's not borrowed and the
-        // value in it can be sent to other threads.
-        unsafe impl<MutexType: Send, T: Send> Send for GenericSender<MutexType, T>
-        where MutexType: RawMutex + Send {}
-        unsafe impl<MutexType: Send, T: Send> Send for GenericReceiver<MutexType, T>
-        where MutexType: RawMutex + Send {}
 
         impl<MutexType, T> core::fmt::Debug for GenericSender<MutexType, T>
         where MutexType: RawMutex {
@@ -646,10 +641,11 @@ mod if_alloc {
             /// the channel.
             /// If the channel gets closed while the send is in progress, sending the
             /// value will fail, and the future will deliver the value back.
-            pub fn send(&self, value: T) -> ChannelSendFuture<T> {
+            pub fn send(&self, value: T) -> ChannelSendFuture<MutexType, T> {
                 ChannelSendFuture {
                     channel: Some(self.inner.clone()),
                     wait_node: ListNode::new(SendWaitQueueEntry::new(value)),
+                    _phantom: PhantomData,
                 }
             }
 
@@ -666,10 +662,11 @@ mod if_alloc {
         where MutexType: RawMutex + 'static {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
-            pub fn receive(&self) -> ChannelReceiveFuture<T> {
+            pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
                 ChannelReceiveFuture {
                     channel: Some(self.inner.clone()),
                     wait_node: ListNode::new(RecvWaitQueueEntry::new()),
+                    _phantom: PhantomData,
                 }
             }
 
@@ -691,10 +688,6 @@ mod if_alloc {
             pub type Sender<T> = GenericSender<parking_lot::RawMutex, T>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             pub type Receiver<T> = GenericReceiver<parking_lot::RawMutex, T>;
-
-            // Parking-lot based channels are thread-safe
-            unsafe impl<T: Send> Sync for Sender<T> {}
-            unsafe impl<T: Send> Sync for Receiver<T> {}
 
             /// Creates a new channel.
             ///

@@ -1,6 +1,7 @@
 //! An asynchronously awaitable oneshot channel which can be awaited by
 //! multiple consumers.
 
+use core::marker::PhantomData;
 use futures_core::task::{Context, Poll};
 use lock_api::{RawMutex, Mutex};
 use crate::NoopLock;
@@ -157,6 +158,8 @@ pub struct GenericOneshotBroadcastChannel<MutexType: RawMutex, T> {
 // The channel can be sent to other threads as long as it's not borrowed and the
 // value in it can be sent to other threads.
 unsafe impl<MutexType: RawMutex + Send, T: Send> Send for GenericOneshotBroadcastChannel<MutexType, T> {}
+// The channel is thread-safe as long as a thread-safe mutex is used
+unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync for GenericOneshotBroadcastChannel<MutexType, T> {}
 
 impl<MutexType: RawMutex, T> core::fmt::Debug for GenericOneshotBroadcastChannel<MutexType, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -196,10 +199,11 @@ where T: Clone {
 
     /// Returns a future that gets fulfilled when a value is written to the channel
     /// or the channel is closed.
-    pub fn receive(&self) -> ChannelReceiveFuture<T> {
+    pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
         ChannelReceiveFuture {
             channel: Some(self),
             wait_node: ListNode::new(RecvWaitQueueEntry::new()),
+            _phantom: PhantomData,
         }
     }
 }
@@ -232,8 +236,6 @@ mod if_std {
 
     /// A [`GenericOneshotBroadcastChannel`] implementation backed by [`parking_lot`].
     pub type OneshotBroadcastChannel<T> = GenericOneshotBroadcastChannel<parking_lot::RawMutex, T>;
-    // The channel is thread-safe
-    unsafe impl<T: Send> Sync for OneshotBroadcastChannel<T> {}
 }
 
 #[cfg(feature = "std")]
@@ -294,13 +296,6 @@ mod if_alloc {
         where MutexType: RawMutex, T: Clone + 'static {
             inner: std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
         }
-
-        // The channel can be sent to other threads as long as it's not borrowed and the
-        // value in it can be sent to other threads.
-        unsafe impl<MutexType: Send, T: Clone + Send> Send for GenericOneshotBroadcastSender<MutexType, T>
-        where MutexType: RawMutex + Send {}
-        unsafe impl<MutexType: Send, T: Clone + Send> Send for GenericOneshotBroadcastReceiver<MutexType, T>
-        where MutexType: RawMutex + Send {}
 
         impl<MutexType, T> core::fmt::Debug for GenericOneshotBroadcastSender<MutexType, T>
         where MutexType: RawMutex, T: Clone {
@@ -387,10 +382,11 @@ mod if_alloc {
         where MutexType: RawMutex + 'static, T: Clone {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
-            pub fn receive(&self) -> ChannelReceiveFuture<T> {
+            pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
                 ChannelReceiveFuture {
                     channel: Some(self.inner.clone()),
                     wait_node: ListNode::new(RecvWaitQueueEntry::new()),
+                    _phantom: PhantomData,
                 }
             }
         }
@@ -404,10 +400,6 @@ mod if_alloc {
             pub type OneshotBroadcastSender<T> = GenericOneshotBroadcastSender<parking_lot::RawMutex, T>;
             /// A [`GenericOneshotBroadcastReceiver`] implementation backed by [`parking_lot`].
             pub type OneshotBroadcastReceiver<T> = GenericOneshotBroadcastReceiver<parking_lot::RawMutex, T>;
-
-            // Parking-lot based channels are thread-safe
-            unsafe impl<T: Clone + Send> Sync for OneshotBroadcastSender<T> {}
-            unsafe impl<T: Clone + Send> Sync for OneshotBroadcastReceiver<T> {}
 
             /// Creates a new oneshot broadcast channel.
             ///
