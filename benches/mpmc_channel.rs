@@ -60,63 +60,45 @@ fn tokiochan_bounded_variable_tx(producers: usize) {
     tokio_or_futures_channel_variable_tx!(producers, tokio::sync::mpsc::channel);
 }
 
+macro_rules! intrusive_channel_variable_tx {
+    ($producers: expr, $channel_constructor: expr) => {
+        let elems_per_producer = ELEMS_TO_SEND/$producers;
+        let (tx, rx) = $channel_constructor;
+
+        for _i in 0..$producers {
+            let tx = tx.clone();
+
+            std::thread::spawn(move || {
+                block_on(async {
+                    for _i in 0..elems_per_producer {
+                        let r = tx.send(4).await;
+                        assert!(r.is_ok());
+                    }
+                });
+            });
+        }
+
+        drop(tx);
+
+        block_on(async {
+            loop {
+                let res = rx.receive().await;
+                if res.is_none() {
+                    break;
+                }
+            }
+        });
+    };
+}
+
 /// variable producers, single consumer
 fn intrusivechan_bounded_variable_tx(producers: usize) {
-    let elems_per_producer = ELEMS_TO_SEND/producers;
-    let (tx, rx) = channel::<i32>(CHANNEL_BUFFER_SIZE);
-
-    for _i in 0..producers {
-        let tx = tx.clone();
-
-        std::thread::spawn(move || {
-            block_on(async {
-                for _i in 0..elems_per_producer {
-                    let r = tx.send(4).await;
-                    assert!(r.is_ok());
-                }
-            });
-        });
-    }
-
-    drop(tx);
-
-    block_on(async {
-        loop {
-            let res = rx.receive().await;
-            if res.is_none() {
-                break;
-            }
-        }
-    });
+    intrusive_channel_variable_tx!(producers, channel::<i32>(CHANNEL_BUFFER_SIZE));
 }
 
 /// variable producers, single consumer
 fn intrusivechan_unbuffered_variable_tx(producers: usize) {
-    let elems_per_producer = ELEMS_TO_SEND/producers;
-    let (tx, rx) = unbuffered_channel::<i32>();
-
-    for _i in 0..producers {
-        let tx = tx.clone();
-        std::thread::spawn(move || {
-            block_on(async {
-                for _i in 0..elems_per_producer {
-                    let r = tx.send(4).await;
-                    assert!(r.is_ok());
-                }
-            });
-        });
-    }
-
-    drop(tx);
-
-    block_on(async {
-        loop {
-            let res = rx.receive().await;
-            if res.is_none() {
-                break;
-            }
-        }
-    });
+    intrusive_channel_variable_tx!(producers, unbuffered_channel::<i32>());
 }
 
 /// Single threaded benchmark for futures-rs and tokio channels, which use the
@@ -161,64 +143,47 @@ fn tokiochan_bounded_variable_tx_single_thread(producers: usize) {
     tokio_or_futures_channel_variable_tx_single_thread!(producers, tokio::sync::mpsc::channel);
 }
 
+macro_rules! intrusive_channel_variable_tx_single_thread {
+    ($producers: expr, $channel_constructor: expr) => {
+        let elems_per_producer = ELEMS_TO_SEND/$producers;
+
+        block_on(async {
+            let (tx, rx) = $channel_constructor;
+            let produce_done = join_all((0..$producers).into_iter().map(|_|{
+                let tx = tx.clone();
+                Box::pin(async move {
+                    for _i in 0..elems_per_producer {
+                        let r = tx.send(4).await;
+                        assert!(r.is_ok());
+                    }
+                })}));
+
+            drop(tx);
+
+            let consume_done = async {
+                loop {
+                    let res = rx.receive().await;
+                    if res.is_none() {
+                        break;
+                    }
+                }
+            };
+
+            join!(produce_done, consume_done);
+        });
+    };
+}
+
 /// variable producers, single consumer
 fn intrusivechan_bounded_variable_tx_single_thread(producers: usize) {
-    let elems_per_producer = ELEMS_TO_SEND/producers;
-
-    block_on(async {
-        let (tx, rx) = channel::<i32>(CHANNEL_BUFFER_SIZE);
-        let produce_done = join_all((0..producers).into_iter().map(|_|{
-            let tx = tx.clone();
-            Box::pin(async move {
-                for _i in 0..elems_per_producer {
-                    let r = tx.send(4).await;
-                    assert!(r.is_ok());
-                }
-            })}));
-
-        drop(tx);
-
-        let consume_done = async {
-            loop {
-                let res = rx.receive().await;
-                if res.is_none() {
-                    break;
-                }
-            }
-        };
-
-        join!(produce_done, consume_done);
-    });
+    intrusive_channel_variable_tx_single_thread!(
+        producers, channel::<i32>(CHANNEL_BUFFER_SIZE));
 }
 
 /// variable producers, single consumer
 fn intrusivechan_unbuffered_variable_tx_single_thread(producers: usize) {
-    let elems_per_producer = ELEMS_TO_SEND/producers;
-
-    block_on(async {
-        let (tx, rx) = unbuffered_channel::<i32>();
-        let produce_done = join_all((0..producers).into_iter().map(|_|{
-            let tx = tx.clone();
-            Box::pin(async move {
-                for _i in 0..elems_per_producer {
-                    let r = tx.send(4).await;
-                    assert!(r.is_ok());
-                }
-            })}));
-
-        drop(tx);
-
-        let consume_done = async {
-            loop {
-                let res = rx.receive().await;
-                if res.is_none() {
-                    break;
-                }
-            }
-        };
-
-        join!(produce_done, consume_done);
-    });
+    intrusive_channel_variable_tx_single_thread!(
+        producers, unbuffered_channel::<i32>());
 }
 
 /// variable producers, single consumer
