@@ -168,7 +168,7 @@
 //! For some types also a shared flavor of the type is provided. Non-local
 //! flavors of types are `Sync`, but still can only be shared by reference
 //! between various tasks.
-//! Shared flavors are also `Sync`, but the types do also implement the `Copy`
+//! Shared flavors are also `Sync`, but the types do also implement the `Clone`
 //! trait, which allows to duplicate the object, and pass the ownership of it
 //! to a different task. These types allow to avoid references (and thereby
 //! lifetimes) in some scenarios, which makes them more convenient to use.
