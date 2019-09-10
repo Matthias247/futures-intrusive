@@ -18,6 +18,30 @@ const ELEMS_TO_SEND: usize = 1000;
 /// Buffer size for buffered channels
 const CHANNEL_BUFFER_SIZE: usize = 20;
 
+/// Benchmark for Crossbeam channels
+fn crossbeam_channel_variable_tx(producers: usize) {
+    let elems_per_producer = ELEMS_TO_SEND/producers;
+    let (tx, rx) = crossbeam::channel::bounded(CHANNEL_BUFFER_SIZE);
+
+    for _i in 0..producers {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            for _i in 0..elems_per_producer {
+                tx.send(4).unwrap();
+            }
+        });
+    }
+
+    drop(tx);
+
+    loop {
+        let res = rx.recv();
+        if res.is_err() {
+            break;
+        }
+    }
+}
+
 /// Benchmark for futures-rs and tokio channels, which use the same API and only
 /// have a different constructor
 macro_rules! tokio_or_futures_channel_variable_tx {
@@ -245,9 +269,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench(
         "Channels (Thread per producer)",
         ParameterizedBenchmark::new(
-            "intrusive channel with producers",
-            |b, &&producers| b.iter(|| intrusivechan_bounded_variable_tx(producers)),
+            "crossbeam channel with producers",
+            |b, &&producers| b.iter(|| crossbeam_channel_variable_tx(producers)),
             &[5, 20, 100])
+        .with_function(
+            "intrusive channel with producers",
+            |b, &&producers| b.iter(|| intrusivechan_bounded_variable_tx(producers)))
         .with_function(
             "intrusive unbuffered channel with producers",
             |b, &&producers| b.iter(|| intrusivechan_unbuffered_variable_tx(producers)))
