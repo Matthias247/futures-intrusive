@@ -14,7 +14,7 @@ enum PollState {
     New,
     /// The task was added to the wait queue at the event.
     Waiting,
-    /// The task had been polled to completion.
+    /// The task has been polled to completion.
     Done,
 }
 
@@ -120,7 +120,7 @@ impl EventState {
                 Poll::Pending
             },
             PollState::Done => {
-                // We had been woken up by the event.
+                // We have been woken up by the event.
                 // This does not guarantee that the event is still set. It could
                 // have been reset it in the meantime.
                 Poll::Ready(())
@@ -129,7 +129,7 @@ impl EventState {
     }
 
     fn remove_waiter(&mut self, wait_node: &mut ListNode<WaitQueueEntry>) {
-        // WaitForEventFuture only needs to get removed if it had been added to
+        // WaitForEventFuture only needs to get removed if it has been added to
         // the wait queue of the Event. This has happened in the PollState::Waiting case.
         if let PollState::Waiting = wait_node.state {
             if ! unsafe { self.waiters.remove(wait_node) } {
@@ -145,7 +145,7 @@ impl EventState {
 /// A synchronization primitive which can be either in the set or reset state.
 ///
 /// Tasks can wait for the event to get set by obtaining a Future via `wait`.
-/// This Future will get fulfilled when the event had been set.
+/// This Future will get fulfilled when the event has been set.
 pub struct GenericManualResetEvent<MutexType: RawMutex> {
     inner: Mutex<MutexType, EventState>,
 }
@@ -280,7 +280,7 @@ impl<'a, MutexType: RawMutex> Drop for GenericWaitForEventFuture<'a, MutexType> 
 
 // Export a non thread-safe version using NoopLock
 
-/// A [`LocalManualResetEvent`] which is not thread-safe.
+/// A [`GenericManualResetEvent`] which is not thread-safe.
 pub type LocalManualResetEvent = GenericManualResetEvent<NoopLock>;
 /// A [`GenericWaitForEventFuture`] for [`LocalManualResetEvent`].
 pub type LocalWaitForEventFuture<'a> = GenericWaitForEventFuture<'a, NoopLock>;
@@ -291,7 +291,7 @@ mod if_std {
 
     // Export a thread-safe version using parking_lot::RawMutex
 
-    /// A [`LocalManualResetEvent`] implementation backed by [`parking_lot`].
+    /// A [`GenericManualResetEvent`] implementation backehttp://nico.ms/sm31485778d by [`parking_lot`].
     pub type ManualResetEvent = GenericManualResetEvent<parking_lot::RawMutex>;
     /// A [`GenericWaitForEventFuture`] for [`ManualResetEvent`].
     pub type WaitForEventFuture<'a> = GenericWaitForEventFuture<'a, parking_lot::RawMutex>;
