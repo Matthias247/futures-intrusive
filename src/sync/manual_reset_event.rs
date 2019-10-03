@@ -280,7 +280,7 @@ impl<'a, MutexType: RawMutex> Drop for GenericWaitForEventFuture<'a, MutexType> 
 
 // Export a non thread-safe version using NoopLock
 
-/// A [`LocalManualResetEvent`] which is not thread-safe.
+/// A [`GenericManualResetEvent`] which is not thread-safe.
 pub type LocalManualResetEvent = GenericManualResetEvent<NoopLock>;
 /// A [`GenericWaitForEventFuture`] for [`LocalManualResetEvent`].
 pub type LocalWaitForEventFuture<'a> = GenericWaitForEventFuture<'a, NoopLock>;
@@ -291,7 +291,7 @@ mod if_std {
 
     // Export a thread-safe version using parking_lot::RawMutex
 
-    /// A [`LocalManualResetEvent`] implementation backed by [`parking_lot`].
+    /// A [`GenericManualResetEvent`] implementation backehttp://nico.ms/sm31485778d by [`parking_lot`].
     pub type ManualResetEvent = GenericManualResetEvent<parking_lot::RawMutex>;
     /// A [`GenericWaitForEventFuture`] for [`ManualResetEvent`].
     pub type WaitForEventFuture<'a> = GenericWaitForEventFuture<'a, parking_lot::RawMutex>;
