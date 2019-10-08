@@ -1,12 +1,12 @@
 //! An asynchronously awaitable semaphore for synchronization between concurrently
 //! executing futures.
 
-use futures_core::future::{Future, FusedFuture};
-use futures_core::task::{Context, Poll, Waker};
-use core::pin::Pin;
-use lock_api::{RawMutex, Mutex as LockApiMutex};
-use crate::NoopLock;
 use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::pin::Pin;
+use futures_core::future::{FusedFuture, Future};
+use futures_core::task::{Context, Poll, Waker};
+use lock_api::{Mutex as LockApiMutex, RawMutex};
 
 /// Tracks how the future had interacted with the semaphore
 #[derive(PartialEq)]
@@ -102,8 +102,7 @@ impl SemaphoreState {
                 // That avoids having to remove the wait element later.
                 if !self.is_fair {
                     self.waiters.remove_last();
-                }
-                else {
+                } else {
                     // For a fair Semaphore we never wake more than 1 task.
                     // That one needs to acquire the Semaphore.
                     // TODO: We actually should be able to wake more, since
@@ -139,12 +138,12 @@ impl SemaphoreState {
         // - enough permits available
         // - the Semaphore is either not fair, or there are no waiters
         // - required_permits == 0
-        if (self.permits >= required_permits) &&
-            (!self.is_fair || self.waiters.is_empty() || required_permits == 0) {
+        if (self.permits >= required_permits)
+            && (!self.is_fair || self.waiters.is_empty() || required_permits == 0)
+        {
             self.permits -= required_permits;
             true
-        }
-        else {
+        } else {
             false
         }
     }
@@ -165,23 +164,21 @@ impl SemaphoreState {
                 if self.try_acquire_sync(wait_node.required_permits) {
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-            },
+            }
             PollState::Waiting => {
                 // The SemaphoreAcquireFuture is already in the queue.
                 if self.is_fair {
                     // The task needs to wait until it gets notified in order to
                     // maintain the ordering.
                     Poll::Pending
-                }
-                else {
+                } else {
                     // For throughput improvement purposes, check immediately
                     // if enough permits are available
                     if self.permits >= wait_node.required_permits {
@@ -191,12 +188,11 @@ impl SemaphoreState {
                         // get removed from the waiter list.
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
-                    }
-                    else {
+                    } else {
                         Poll::Pending
                     }
                 }
-            },
+            }
             PollState::Notified => {
                 // We had been woken by the semaphore, since the semaphore is available again.
                 // The semaphore thereby removed us from the waiters list.
@@ -216,24 +212,25 @@ impl SemaphoreState {
                     }
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // A fair semaphore should never end up in that branch, since
                     // it's only notified when it's permits are guaranteed to
                     // be available. assert! in order to find logic bugs
-                    assert!(!self.is_fair, "Fair semaphores should always be ready when notified");
+                    assert!(
+                        !self.is_fair,
+                        "Fair semaphores should always be ready when notified"
+                    );
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-
-            },
+            }
             PollState::Done => {
                 // The future had been polled to completion before
                 panic!("polled Mutex after completion");
-            },
+            }
         }
     }
 
@@ -265,13 +262,13 @@ impl SemaphoreState {
                 wait_node.state = PollState::Done;
                 // Wakeup more waiters
                 self.wakeup_waiters();
-            },
+            }
             PollState::Waiting => {
                 // Remove the WaitQueueEntry from the linked list
                 unsafe { self.force_remove_waiter(wait_node) };
                 wait_node.state = PollState::Done;
-            },
-            PollState::New | PollState::Done => {},
+            }
+            PollState::New | PollState::Done => {}
         }
     }
 }
@@ -288,11 +285,9 @@ pub struct GenericSemaphoreReleaser<'a, MutexType: RawMutex> {
     permits: usize,
 }
 
-impl<MutexType: RawMutex> core::fmt::Debug
-for GenericSemaphoreReleaser<'_, MutexType> {
+impl<MutexType: RawMutex> core::fmt::Debug for GenericSemaphoreReleaser<'_, MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericSemaphoreReleaser")
-            .finish()
+        f.debug_struct("GenericSemaphoreReleaser").finish()
     }
 }
 
@@ -336,35 +331,28 @@ pub struct GenericSemaphoreAcquireFuture<'a, MutexType: RawMutex> {
 // a different thread.
 unsafe impl<'a, MutexType: RawMutex + Sync> Send for GenericSemaphoreAcquireFuture<'a, MutexType> {}
 
-impl<'a, MutexType: RawMutex> core::fmt::Debug
-for GenericSemaphoreAcquireFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> core::fmt::Debug for GenericSemaphoreAcquireFuture<'a, MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericSemaphoreAcquireFuture")
-            .finish()
+        f.debug_struct("GenericSemaphoreAcquireFuture").finish()
     }
 }
 
 impl<'a, MutexType: RawMutex> Future for GenericSemaphoreAcquireFuture<'a, MutexType> {
     type Output = GenericSemaphoreReleaser<'a, MutexType>;
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside GenericSemaphoreAcquireFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut GenericSemaphoreAcquireFuture<MutexType> = unsafe {
-            Pin::get_unchecked_mut(self)
-        };
+        let mut_self: &mut GenericSemaphoreAcquireFuture<MutexType> =
+            unsafe { Pin::get_unchecked_mut(self) };
 
-        let semaphore = mut_self.semaphore.expect("polled GenericSemaphoreAcquireFuture after completion");
+        let semaphore = mut_self
+            .semaphore
+            .expect("polled GenericSemaphoreAcquireFuture after completion");
         let mut semaphore_state = semaphore.state.lock();
 
-        let poll_res = unsafe {
-            semaphore_state.try_acquire(
-                &mut mut_self.wait_node,
-                cx)};
+        let poll_res = unsafe { semaphore_state.try_acquire(&mut mut_self.wait_node, cx) };
 
         match poll_res {
             Poll::Pending => Poll::Pending,
@@ -375,19 +363,19 @@ impl<'a, MutexType: RawMutex> Future for GenericSemaphoreAcquireFuture<'a, Mutex
                     true => mut_self.wait_node.required_permits,
                     false => 0,
                 };
-                Poll::Ready(GenericSemaphoreReleaser::<'a, MutexType>{
+                Poll::Ready(GenericSemaphoreReleaser::<'a, MutexType> {
                     semaphore,
                     permits: to_release,
                 })
-            },
+            }
         }
     }
 }
 
 impl<'a, MutexType: RawMutex> FusedFuture for GenericSemaphoreAcquireFuture<'a, MutexType> {
-   fn is_terminated(&self) -> bool {
-       self.semaphore.is_none()
-   }
+    fn is_terminated(&self) -> bool {
+        self.semaphore.is_none()
+    }
 }
 
 impl<'a, MutexType: RawMutex> Drop for GenericSemaphoreAcquireFuture<'a, MutexType> {
@@ -475,14 +463,16 @@ impl<MutexType: RawMutex> GenericSemaphore<MutexType> {
     /// when dropped.
     ///
     /// Otherwise `None` will be returned.
-    pub fn try_acquire(&self, nr_permits: usize) -> Option<GenericSemaphoreReleaser<'_, MutexType>> {
+    pub fn try_acquire(
+        &self,
+        nr_permits: usize,
+    ) -> Option<GenericSemaphoreReleaser<'_, MutexType>> {
         if self.state.lock().try_acquire_sync(nr_permits) {
-            Some(GenericSemaphoreReleaser{
+            Some(GenericSemaphoreReleaser {
                 semaphore: self,
                 permits: nr_permits,
             })
-        }
-        else {
+        } else {
             None
         }
     }
@@ -532,3 +522,259 @@ mod if_std {
 
 #[cfg(feature = "std")]
 pub use self::if_std::*;
+
+// The next section should really integrated if the alloc feature is active,
+// since it mainly requires `Arc` to be available. However for simplicity reasons
+// it is currently only activated in std environments.
+#[cfg(feature = "std")]
+mod if_alloc {
+    use super::*;
+
+    pub mod shared {
+        use super::*;
+        use std::sync::Arc;
+
+        /// An RAII guard returned by the `acquire` and `try_acquire` methods.
+        ///
+        /// When this structure is dropped (falls out of scope),
+        /// the amount of permits that was used in the `acquire()` call will be released
+        /// back to the Semaphore.
+        pub struct GenericSemaphoreReleaser<MutexType: RawMutex> {
+            /// The Semaphore which is associated with this Releaser
+            semaphore: GenericSemaphore<MutexType>,
+            /// The amount of permits to release
+            permits: usize,
+        }
+
+        impl<MutexType: RawMutex> core::fmt::Debug for GenericSemaphoreReleaser<MutexType> {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_struct("GenericSemaphoreReleaser").finish()
+            }
+        }
+
+        impl<MutexType: RawMutex> GenericSemaphoreReleaser<MutexType> {
+            /// Prevents the SemaphoreReleaser from automatically releasing the permits
+            /// when it gets dropped.
+            /// This is helpful if the permits must be acquired for a longer lifetime
+            /// than the one of the SemaphoreReleaser.
+            /// If this method is used it is important to release the acquired permits
+            /// manually back to the Semaphore.
+            pub fn disarm(&mut self) -> usize {
+                let permits = self.permits;
+                self.permits = 0;
+                permits
+            }
+        }
+
+        impl<MutexType: RawMutex> Drop for GenericSemaphoreReleaser<MutexType> {
+            fn drop(&mut self) {
+                // Release the requested amount of permits to the semaphore
+                if self.permits != 0 {
+                    self.semaphore.state.lock().release(self.permits);
+                }
+            }
+        }
+
+        /// A future which resolves when the target semaphore has been successfully acquired.
+        #[must_use = "futures do nothing unless polled"]
+        pub struct GenericSemaphoreAcquireFuture<MutexType: RawMutex> {
+            /// The Semaphore which should get acquired trough this Future
+            semaphore: Option<GenericSemaphore<MutexType>>,
+            /// Node for waiting at the semaphore
+            wait_node: ListNode<WaitQueueEntry>,
+            /// Whether the obtained permits should automatically be released back
+            /// to the semaphore.
+            auto_release: bool,
+        }
+
+        // Safety: Futures can be sent between threads as long as the underlying
+        // semaphore is thread-safe (Sync), which allows to poll/register/unregister from
+        // a different thread.
+        unsafe impl<MutexType: RawMutex + Sync> Send for GenericSemaphoreAcquireFuture<MutexType> {}
+
+        impl<MutexType: RawMutex> core::fmt::Debug for GenericSemaphoreAcquireFuture<MutexType> {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_struct("GenericSemaphoreAcquireFuture").finish()
+            }
+        }
+
+        impl<MutexType: RawMutex> Future for GenericSemaphoreAcquireFuture<MutexType> {
+            type Output = GenericSemaphoreReleaser<MutexType>;
+
+            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                // Safety: The next operations are safe, because Pin promises us that
+                // the address of the wait queue entry inside GenericSemaphoreAcquireFuture is stable,
+                // and we don't move any fields inside the future until it gets dropped.
+                let mut_self: &mut GenericSemaphoreAcquireFuture<MutexType> =
+                    unsafe { Pin::get_unchecked_mut(self) };
+
+                let semaphore = mut_self
+                    .semaphore
+                    .take()
+                    .expect("polled GenericSemaphoreAcquireFuture after completion");
+                let mut semaphore_state = semaphore.state.lock();
+
+                let poll_res = unsafe { semaphore_state.try_acquire(&mut mut_self.wait_node, cx) };
+
+                match poll_res {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(()) => {
+                        // The semaphore was acquired.
+                        let to_release = match mut_self.auto_release {
+                            true => mut_self.wait_node.required_permits,
+                            false => 0,
+                        };
+                        drop(semaphore_state);
+                        Poll::Ready(GenericSemaphoreReleaser::<MutexType> {
+                            semaphore,
+                            permits: to_release,
+                        })
+                    }
+                }
+            }
+        }
+
+        impl<MutexType: RawMutex> FusedFuture for GenericSemaphoreAcquireFuture<MutexType> {
+            fn is_terminated(&self) -> bool {
+                self.semaphore.is_none()
+            }
+        }
+
+        impl<MutexType: RawMutex> Drop for GenericSemaphoreAcquireFuture<MutexType> {
+            fn drop(&mut self) {
+                // If this GenericSemaphoreAcquireFuture has been polled and it was added to the
+                // wait queue at the semaphore, it must be removed before dropping.
+                // Otherwise the semaphore would access invalid memory.
+                if let Some(ref semaphore) = self.semaphore {
+                    let mut semaphore_state = semaphore.state.lock();
+                    // Analysis: Does the number of permits play a role here?
+                    // The future was notified because there was a certain amount of permits
+                    // available.
+                    // Removing the waiter will wake up as many tasks as there are permits
+                    // available inside the Semaphore now. If this is bigger than the
+                    // amount of permits required for this task, then additional new
+                    // tasks might get woken. However that isn't bad, since
+                    // those tasks should get into the wait state anyway.
+                    semaphore_state.remove_waiter(&mut self.wait_node);
+                }
+            }
+        }
+
+        /// A futures-aware semaphore.
+        pub struct GenericSemaphore<MutexType: RawMutex> {
+            state: Arc<LockApiMutex<MutexType, SemaphoreState>>,
+        }
+
+        // It is safe to send semaphores between threads, as long as they are not used and
+        // thereby borrowed
+        unsafe impl<MutexType: RawMutex + Send> Send for GenericSemaphore<MutexType> {}
+        // The Semaphore is thread-safe as long as the utilized Mutex is thread-safe
+        unsafe impl<MutexType: RawMutex + Sync> Sync for GenericSemaphore<MutexType> {}
+
+        impl<MutexType: RawMutex> Clone for GenericSemaphore<MutexType> {
+            fn clone(&self) -> Self {
+                Self {
+                    state: self.state.clone(),
+                }
+            }
+        }
+
+        impl<MutexType: RawMutex> core::fmt::Debug for GenericSemaphore<MutexType> {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_struct("Semaphore")
+                    .field("permits", &self.permits())
+                    .finish()
+            }
+        }
+
+        impl<MutexType: RawMutex> GenericSemaphore<MutexType> {
+            /// Creates a new futures-aware semaphore.
+            ///
+            /// `is_fair` defines whether the `Semaphore` should behave be fair regarding the
+            /// order of waiters. A fair `Semaphore` will only allow the oldest waiter on
+            /// a `Semaphore` to retry acquiring it once it's available again.
+            /// Other waiters must wait until either this acquire attempt completes, and
+            /// the `Semaphore` has enough permits after that, or until the
+            /// [`SemaphoreAcquireFuture`] which tried to acquire the `Semaphore` is dropped.
+            ///
+            /// If the `Semaphore` isn't fair, waiters that wait for a high amount of
+            /// permits might never succeed since the permits might be stolen in between
+            /// by other waiters. Therefore use-cases which make use of very different
+            /// amount of permits per acquire should use fair semaphores.
+            /// For use-cases where each `acquire()` tries to acquire the same amount of
+            /// permits an unfair `Semaphore` might provide throughput advantages.
+            ///
+            /// `permits` is the amount of permits that a semaphore should hold when
+            /// created.
+            pub fn new(is_fair: bool, permits: usize) -> GenericSemaphore<MutexType> {
+                GenericSemaphore::<MutexType> {
+                    state: Arc::new(LockApiMutex::new(SemaphoreState::new(is_fair, permits))),
+                }
+            }
+
+            /// Acquire a certain amount of permits on a semaphore asynchronously.
+            ///
+            /// This method returns a future that will resolve once the given amount of
+            /// permits have been acquired.
+            /// The Future will resolve to a [`GenericSemaphoreReleaser`], which will
+            /// release all acquired permits automatically when dropped.
+            pub fn acquire(&self, nr_permits: usize) -> GenericSemaphoreAcquireFuture<MutexType> {
+                GenericSemaphoreAcquireFuture::<MutexType> {
+                    semaphore: Some(self.clone()),
+                    wait_node: ListNode::new(WaitQueueEntry::new(nr_permits)),
+                    auto_release: true,
+                }
+            }
+
+            /// Tries to acquire a certain amount of permits on a semaphore.
+            ///
+            /// If acquiring the permits is successful, a [`GenericSemaphoreReleaser`]
+            /// will be returned, which will release all acquired permits automatically
+            /// when dropped.
+            ///
+            /// Otherwise `None` will be returned.
+            pub fn try_acquire(
+                &self,
+                nr_permits: usize,
+            ) -> Option<GenericSemaphoreReleaser<MutexType>> {
+                if self.state.lock().try_acquire_sync(nr_permits) {
+                    Some(GenericSemaphoreReleaser {
+                        semaphore: self.clone(),
+                        permits: nr_permits,
+                    })
+                } else {
+                    None
+                }
+            }
+
+            /// Releases the given amount of permits back to the semaphore.
+            ///
+            /// This method should in most cases not be used, since the
+            /// [`GenericSemaphoreReleaser`] which is obtained when acquiring a Semaphore
+            /// will automatically release the obtained permits again.
+            ///
+            /// Therefore this method should only be used if the automatic release was
+            /// disabled by calling [`GenericSemaphoreReleaser::disarm`],
+            /// or when the amount of permits in the Semaphore
+            /// should increase from the initial amount.
+            pub fn release(&self, nr_permits: usize) {
+                self.state.lock().release(nr_permits)
+            }
+
+            /// Returns the amount of permits that are available on the semaphore
+            pub fn permits(&self) -> usize {
+                self.state.lock().permits()
+            }
+        }
+
+        /// A [`GenericSemaphore`] implementation backed by [`parking_lot`].
+        pub type Semaphore = GenericSemaphore<parking_lot::RawMutex>;
+        /// A [`GenericSemaphoreReleaser`] implementation backed by [`parking_lot`].
+        pub type SemaphoreReleaser = GenericSemaphoreReleaser<parking_lot::RawMutex>;
+        /// A [`GenericSemaphoreReleaser`] implementation backed by [`parking_lot`].
+        pub type SemaphoreAcquireFuture = GenericSemaphoreAcquireFuture<parking_lot::RawMutex>;
+    }
+}
+
+#[cfg(feature = "std")]
+pub use self::if_alloc::*;
