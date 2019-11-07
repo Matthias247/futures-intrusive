@@ -15,9 +15,9 @@
 //! ## Intrusive collections?
 //!
 //! In an intrusive collection, the elements that want to get stored inside the
-//! collection are-providing the means to store themselves inside the collection.
+//! collection provide the means to store themselves inside the collection.
 //! E.g. in an intrusive linked list, each element that gets stored inside the
-//! list contains pointer field that points to the next list element. E.g.
+//! list contains a pointer field that points to the next list element. E.g.
 //!
 //! ```
 //! // The element which is intended to be stored inside an intrusive container
@@ -36,39 +36,38 @@
 //! only a fixed amount of memory. In this case it only needs a pointer to the
 //! first element.
 //!
-//! The list container itself has a fixed size of a single pointer, independent
+//! The list container itself has a fixed size of a single pointer independent
 //! of the number of stored elements.
 //!
-//! Intrusive lists are often used low-level code like in operating system kernels.
-//! E.g. they can be used for storing elements that represent threads that are
-//! blocked and waiting on queue.
-//! In that case the stored elements can be on the call-stack of the
-//! caller of each blocked thread, since the call-stack won't change as long as
-//! the thread is blocked.
+//! Intrusive lists are often used in low-level code like in operating system
+//! kernels.  E.g. they can be used for storing elements that represent threads
+//! that are blocked and waiting on queue.  In that case the stored elements can
+//! be on the call stack of the caller of each blocked thread, since the
+//! call stack won't change as long as the thread is blocked.
 //!
 //! ### Application in Futures
 //!
 //! This library brings this idea into the world of Rusts `Future`s. Due to the
 //! addition of `Pin`ning, the address of a certain `Future` is not allowed to
-//! change between the first call to `poll()` until the `Future` is dropped.
+//! change between the first call to `poll()` and when the `Future` is dropped.
 //! This means the data inside the `Future` itself can be inserted into an
 //! intrusive container. If the the call to `Future::poll()` is not immedately
-//! ready, some parts of the `Future` itself are registered at the type which
+//! ready, some parts of the `Future` itself are registered in the type which
 //! yielded the `Future`. Each `Future` can store a `Waker`. When the original
-//! type gets ready, it can iterate through the list of registered `Future`s,
-//! wakeup associated tasks, and potentially remove them from it's queue.
+//! type becomes ready, it can iterate through the list of registered `Future`s,
+//! wakeup associated tasks, and potentially remove them from its queue.
 //!
 //! The result is that the future-yielding type is not required to copy an
-//! arbitrary amount of `Waker` objects into itself, and thereby does not require
+//! arbitrary number of `Waker` objects into itself, and thereby does not require
 //! dynamic memory for this task.
 //!
 //! When a `Future` gets destructed/dropped, it must make sure to remove itself
-//! from any collections that refer to it, to avoid invalid memory accesses.
+//! from any collections that refer to it to avoid invalid memory accesses.
 //!
 //! This library implements common synchronization primitives for the usage in
 //! asychronous code based on this concept.
 //!
-//! The implementation requires the usage of a fair chunk of of `unsafe`
+//! The implementation requires the usage of a fair chunk of `unsafe`
 //! annotations. However the provided user-level API is intended to be fully safe.
 //!
 //! ## Features of this library
@@ -80,31 +79,30 @@
 //!
 //! ## Design goals for the library
 //!
-//! - Providing implementations of common synchronization primitives in a
-//!   platform independent fashion.
-//! - Support for `no-std` environments. As many types as possible are also
-//!   provided for `no-std` environments. The library should boost the ability
-//!   to use async Rust code in environments like
+//! - Provide implementations of common synchronization primitives in a platform
+//!   independent fashion.
+//! - Support `no-std` environments. As many types as possible are also provided
+//!   for `no-std` environments. The library should boost the ability to use
+//!   async Rust code in environments like:
 //!   - Microcontrollers (RTOS and bare-metal)
 //!   - Kernels
 //!   - Drivers
-//! - Avoidance of dynamic memory allocations during runtime.
-//!   After objects from this library have been created, they should not require
-//!   the allocation of any further memory during runtime.
-//!   E.g. they should not require to allocate memory for each call to an
-//!   asynchronous function, or each time a new task accesses the same object
-//!   in parallel.
-//! - Familiar APIs.
+//! - Avoid dynamic memory allocations at runtime.  After objects from this
+//!   library have been created, they should not require allocation of any
+//!   further memory at runtime.  E.g. they should not need to allocate memory
+//!   for each call to an asynchronous function or each time a new task accesses
+//!   the same object in parallel.
+//! - Offer familiar APIs.
 //!   The library tries to mimic the APIs of existing Rust libraries like the
-//!   standard library and and `futures-rs` as closely as possible.
+//!   standard library and `futures-rs` as closely as possible.
 //!
 //! ## Non goals
 //!
-//! - Providing IO primitives (like) sockets, or platform specific implementations
-//! - Reaching the highest possible performance in terms of throughput and latency.
-//!   While code inside this library is optimized for performance, portability
+//! - Provide IO primitives (like sockets), or platform specific implementations.
+//! - Reach the highest possible performance in terms of throughput and latency.
+//!   While code in this library is optimized for performance, portability
 //!   and deterministic memory usage are more important goals.
-//! - Providing future wrappers for platform-specific APIs.
+//! - Provide future wrappers for platform-specific APIs.
 //!
 //! ## Local, Non-local and shared flavors
 //!
@@ -116,7 +114,7 @@
 //! - A generic flavor (e.g. [`channel::GenericChannel`] and
 //!   [`channel::shared::GenericSender`])
 //!
-//! The difference between the types lie in their thread-safety. The non-local
+//! The difference between these types lie in their thread-safety. The non-local
 //! flavors of types can be accessed from multiple threads (and thereby also
 //! futures tasks) concurrently. This means they implement the `Sync` trait in
 //! addition to the `Send` trait.
@@ -129,8 +127,8 @@
 //! Due the lack of required synchronization, they are also very fast.
 //!
 //! It might seem counter-intuitive to provide synchronization primitives that
-//! only work within a single task. However there is a variety of applications
-//! where those can be used to coordinate sub-tasks (futures that are polled on
+//! only work within a single task. However there are a variety of applications
+//! where these can be used to coordinate sub-tasks (futures that are polled on
 //! a single task concurrently).
 //!
 //! The following example demonstrates this use-case:
@@ -157,60 +155,59 @@
 //!
 //! ### Non-local flavor
 //!
-//! The non-local flavors can be used between arbitrary tasks and threads.
-//! They use internal synchronization for this in form of an embedded `Mutex` in
-//! the form of a [`parking_lot::Mutex`] type.
+//! The non-local flavors can be used between arbitrary tasks and threads.  They
+//! use internal synchronization for this in form of an embedded `Mutex` of
+//! [`parking_lot::Mutex`] type.
 //!
 //! The non-local flavors are only available in `std` environments.
 //!
 //! ### Shared flavor
 //!
-//! For some types also a shared flavor of the type is provided. Non-local
-//! flavors of types are `Sync`, but still can only be shared by reference
-//! between various tasks.
-//! Shared flavors are also `Sync`, but the types do also implement the `Clone`
-//! trait, which allows to duplicate the object, and pass the ownership of it
-//! to a different task. These types allow to avoid references (and thereby
-//! lifetimes) in some scenarios, which makes them more convenient to use.
-//! The types also return `Future`s which do not have an associated lifetime.
-//! This allows to use those types as implementations of traits, without the
-//! need for generic associated types (GATs).
+//! For some types a shared flavor is provided. Non-local flavors of types are
+//! `Sync`, but they still can only be shared by reference between various tasks.
+
+//! Shared flavors are also `Sync`, but the types additionally implement the
+//! `Clone` trait, which allows duplicating the object, and passing ownership of
+//! it to a different task. These types allow avoiding references (and thereby
+//! lifetimes) in some scenarios, which makes them more convenient to use.  The
+//! types also return `Future`s which do not have an associated lifetime.  This
+//! allows using those types as implementations of traits without the need for
+//! generic associated types (GATs).
 //!
-//! Due to the requirement of atomic reference counting, those types are
+//! Due to the requirement of atomic reference counting, these types are
 //! currently only available for `std` environments.
 //!
 //! ### Generic flavor
 //!
 //! The generic flavors of provided types are parameterized around a
-//! [`lock_api::RawMutex`] type. The form the base for the non-local and shared
-//! flavors, which just parameterize the generic flavor in either a non
-//! thread-safe or thread-safe fashion.
+//! [`lock_api::RawMutex`] type. These form the base for the non-local and shared
+//! flavors which simply parameterize the generic flavor in either a
+//! non-thread-safe or thread-safe fashion.
 //!
-//! Users have the opportunity to directly make use generic flavors, in order to
-//! adapt the provided thread-safe types for the use in `no-std` environments.
+//! Users can directly use the generic flavors to adapt the provided thread-safe
+//! types for use in `no-std` environments.
 //!
 //! E.g. by providing a custom [`lock_api::RawMutex`]
 //! implementation, the following platforms can be supported:
 //!
-//! - For RTOS platform, RTOS-specific mutexes can be wrapped.
-//! - For Kernel development, spinlock based mutexes can be created.
+//! - For RTOS platforms, RTOS-specific mutexes can be wrapped.
+//! - For kernel development, spinlock based mutexes can be created.
 //! - For embedded development, mutexes which just disable interrupts can be
 //!   utilized.
 //!
 //!
 //! ## Relation to types in other libraries
 //!
-//! Other libraries (e.g. `futures-rs` and `tokio`) are already providing
-//! a lot of primitives that are comparable feature-wise to the types in this
-//! library.
+//! Other libraries (e.g. `futures-rs` and `tokio`) provide many primitives that
+//! are comparable feature-wise to the types in this library.
 //!
 //! The most important differences are:
 //! - This library has a bigger focus on `no-std` environments, and does not
 //!   only try to provide an implementation for `std`.
 //! - The types in this library do not require dynamic memory allocation for
-//!   waking up an arbitrary amount of tasks that are waiting on a particular
-//!   `Future`. Other libraries typically require heap-allocated nodes for
-//!   growing vectors for handling a varying amount of tasks.
+//!   waking up an arbitrary number of tasks waiting on a particular
+//!   `Future`. Other libraries typically require heap-allocated nodes of
+//!   growing vectors for handling a varying number of tasks.
 //! - The `Future`s produced by this library are all `!Unpin`, which might make
 //!   them less ergonomic to use.
 //!
