@@ -42,46 +42,61 @@ fn crossbeam_channel_variable_tx(producers: usize) {
     }
 }
 
-/// Benchmark for futures-rs and tokio channels, which use the same API and only
-/// have a different constructor
-macro_rules! tokio_or_futures_channel_variable_tx {
-    ($producers: expr, $channel_constructor: path) => {
-        let elems_per_producer = ELEMS_TO_SEND/$producers;
-        let (tx, mut rx) = $channel_constructor(CHANNEL_BUFFER_SIZE);
-
-        for _i in 0..$producers {
-            let mut tx = tx.clone();
-            std::thread::spawn(move || {
-                block_on(async {
-                    for _i in 0..elems_per_producer {
-                        tx.send(4).await.unwrap();
-                    }
-                });
-            });
-        }
-
-        drop(tx);
-
-        block_on(async {
-            loop {
-                let res = rx.next().await;
-                if res.is_none() {
-                    break;
-                }
-            }
-        });
-    };
-}
-
 /// variable producers, single consumer
 fn futchan_bounded_variable_tx(producers: usize) {
     use futures::channel::mpsc::channel;
-    tokio_or_futures_channel_variable_tx!(producers, channel);
+    let elems_per_producer = ELEMS_TO_SEND/producers;
+    let (tx, mut rx) = channel(CHANNEL_BUFFER_SIZE);
+
+    for _i in 0..producers {
+        let mut tx = tx.clone();
+        std::thread::spawn(move || {
+            block_on(async {
+                for _i in 0..elems_per_producer {
+                    tx.send(4).await.unwrap();
+                }
+            });
+        });
+    }
+
+    drop(tx);
+
+    block_on(async {
+        loop {
+            let res = rx.next().await;
+            if res.is_none() {
+                break;
+            }
+        }
+    });
 }
 
 /// variable producers, single consumer
 fn tokiochan_bounded_variable_tx(producers: usize) {
-    tokio_or_futures_channel_variable_tx!(producers, tokio::sync::mpsc::channel);
+    let elems_per_producer = ELEMS_TO_SEND/producers;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER_SIZE);
+
+    for _i in 0..producers {
+        let mut tx = tx.clone();
+        std::thread::spawn(move || {
+            block_on(async {
+                for _i in 0..elems_per_producer {
+                    tx.send(4).await.unwrap();
+                }
+            });
+        });
+    }
+
+    drop(tx);
+
+    block_on(async {
+        loop {
+            let res = rx.recv().await;
+            if res.is_none() {
+                break;
+            }
+        }
+    });
 }
 
 macro_rules! intrusive_channel_variable_tx {
@@ -125,46 +140,62 @@ fn intrusivechan_unbuffered_variable_tx(producers: usize) {
     intrusive_channel_variable_tx!(producers, unbuffered_channel::<i32>());
 }
 
-/// Single threaded benchmark for futures-rs and tokio channels, which use the
-/// same API and only have a different constructor
-macro_rules! tokio_or_futures_channel_variable_tx_single_thread {
-    ($producers: expr, $channel_constructor: path) => {
-        let elems_per_producer = ELEMS_TO_SEND/$producers;
-
-        block_on(async {
-            let (tx, mut rx) = $channel_constructor(CHANNEL_BUFFER_SIZE);
-            let produce_done = join_all((0..$producers).into_iter().map(|_|{
-                let mut tx = tx.clone();
-                async move {
-                    for _i in 0..elems_per_producer {
-                        tx.send(4).await.unwrap();
-                    }
-                }.boxed()}));
-
-            drop(tx);
-
-            let consume_done = async {
-                loop {
-                    let res = rx.next().await;
-                    if res.is_none() {
-                        break;
-                    }
-                }
-            };
-
-            join!(produce_done, consume_done);
-        });
-    };
-}
-
 /// variable producers, single consumer
 fn futchan_bounded_variable_tx_single_thread(producers: usize) {
-    tokio_or_futures_channel_variable_tx_single_thread!(producers, futures::channel::mpsc::channel);
+    let elems_per_producer = ELEMS_TO_SEND/producers;
+
+    block_on(async {
+        let (tx, mut rx) = futures::channel::mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let produce_done = join_all((0..producers).into_iter().map(|_|{
+            let mut tx = tx.clone();
+            async move {
+                for _i in 0..elems_per_producer {
+                    tx.send(4).await.unwrap();
+                }
+            }.boxed()}));
+
+        drop(tx);
+
+        let consume_done = async {
+            loop {
+                let res = rx.next().await;
+                if res.is_none() {
+                    break;
+                }
+            }
+        };
+
+        join!(produce_done, consume_done);
+    });
 }
 
 /// variable producers, single consumer
 fn tokiochan_bounded_variable_tx_single_thread(producers: usize) {
-    tokio_or_futures_channel_variable_tx_single_thread!(producers, tokio::sync::mpsc::channel);
+    let elems_per_producer = ELEMS_TO_SEND/producers;
+
+    block_on(async {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let produce_done = join_all((0..producers).into_iter().map(|_|{
+            let mut tx = tx.clone();
+            async move {
+                for _i in 0..elems_per_producer {
+                    tx.send(4).await.unwrap();
+                }
+            }.boxed()}));
+
+        drop(tx);
+
+        let consume_done = async {
+            loop {
+                let res = rx.recv().await;
+                if res.is_none() {
+                    break;
+                }
+            }
+        };
+
+        join!(produce_done, consume_done);
+    });
 }
 
 macro_rules! intrusive_channel_variable_tx_single_thread {

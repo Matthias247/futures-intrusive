@@ -1,7 +1,7 @@
 [package]
 name = "futures-intrusive"
 edition = "2018"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Matthias Einwag <matthias.einwag@live.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Matthias247/futures-intrusive"
@@ -14,23 +14,23 @@ Futures based on intrusive data structures - for std and no-std environments.
 name = "futures_intrusive"
 
 [features]
-std = ["futures-core-preview/std", "parking_lot"]
+std = ["futures-core/std", "parking_lot"]
 default = ["std"]
 
 [dependencies]
-futures-core-preview = { version = "0.3.0-alpha.18", default-features = false }
+futures-core = { version = "0.3.0", default-features = false }
 lock_api = "0.3.1"
 parking_lot = { version = "0.9", optional = true }
 
 [dev-dependencies]
-futures-preview = { version = "0.3.0-alpha.18", default-features = true, features=["async-await", "nightly"] }
-futures-test-preview = { version = "0.3.0-alpha.18", default-features = true }
+futures = { version = "0.3.0", default-features = true, features=["async-await"] }
+futures-test = { version = "0.3.0", default-features = true }
 pin-utils = "0.1.0-alpha.4"
 criterion = "0.3.0"
 crossbeam = "0.7" # For channel benchmarks
 lazy_static = "1.4.0"
 rand = "0.7"
-tokio = "0.2.0-alpha.4" # For channel benchmarks
+tokio = "0.2.0-alpha.6" # For channel benchmarks
 
 [[bench]]
 name = "mpmc_channel"

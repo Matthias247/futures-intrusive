@@ -24,7 +24,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-futures-intrusive = "0.2.0"
+futures-intrusive = "^0.2"
 ```
 
 In order to use the crate in a `no-std` environment, it needs to be compiled
@@ -32,16 +32,15 @@ without default features:
 
 ```toml
 [dependencies]
-futures-intrusive = { version = "0.2.0", default-features = false }
+futures-intrusive = { version = "^0.2", default-features = false }
 ```
 
 The crate defines a feature `std`, which can be used in order to re-enable `std` features.
 
 ## Minimum Rust version
 
-Due to the usage of unstable features, the library depends on a nightly version
-of the Rust compiler.
-The current minimum required Rust version is 1.36 nightly 2019-05-21.
+The minimum required Rust version is 1.36, due to reliance on stable
+`Future`, `Context` and `Waker` types.
 
 ## License
 
