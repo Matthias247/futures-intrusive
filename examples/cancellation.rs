@@ -80,7 +80,7 @@
 //! be performed. This allows the user to retrieve the results of the algorithm.
 
 use futures_intrusive::{
-    channel::LocalChannel,
+    channel::LocalUnbufferedChannel,
     sync::{LocalManualResetEvent, ManualResetEvent},
     timer::{StdClock, Timer, TimerService},
 };
@@ -140,7 +140,7 @@ async fn fizzbuzz_search(
     //   only the producer task will shut down.
     // - Before the producer task exits, it will signal another cancellation
     //   token. That one will lead the checker task to shut down.
-    let channel = LocalChannel::<usize, [usize; 0]>::new();
+    let channel = LocalUnbufferedChannel::<usize>::new();
     let checker_cancellation_token = LocalManualResetEvent::new(false);
     let producer_future = producer_task(
         max,
@@ -169,7 +169,7 @@ async fn fizzbuzz_search(
 /// until the task gets cancelled.
 async fn producer_task(
     max: usize,
-    channel: &LocalChannel<usize, [usize; 0]>,
+    channel: &LocalUnbufferedChannel<usize>,
     main_cancellation_token: &ManualResetEvent,
     consumer_cancellation_token: &LocalManualResetEvent
 ) {
@@ -206,7 +206,7 @@ async fn producer_task(
 /// It is important that this tasks runs to completion instead of getting
 /// forcefully cancelled. Otherwise no results would be available.
 async fn check_task(
-    channel: &LocalChannel<usize, [usize; 0]>,
+    channel: &LocalUnbufferedChannel<usize>,
     cancellation_token: &LocalManualResetEvent
 ) -> SearchResult {
     // Initialize the result with `None`s

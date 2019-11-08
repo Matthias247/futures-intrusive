@@ -414,7 +414,7 @@ where A: RingBuf<Item=T>
 pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayRingBuf<T, A>>;
 
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
-pub type LocalUnbufferedChannel<T> = LocalChannel<T, ArrayRingBuf<T, [T; 0]>>;
+pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -434,7 +434,7 @@ mod if_std {
     pub type Channel<T, A> = GenericChannel<parking_lot::RawMutex, T, ArrayRingBuf<T, A>>;
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
-    pub type UnbufferedChannel<T> = Channel<T, ArrayRingBuf<T, [T; 0]>>;
+    pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
 }
 
 #[cfg(feature = "std")]

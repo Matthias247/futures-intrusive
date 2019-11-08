@@ -1,6 +1,10 @@
 use futures::future::{Future, FusedFuture};
 use futures::task::{Context, Poll};
-use futures_intrusive::channel::{LocalChannel, ChannelSendError};
+use futures_intrusive::channel::{
+    ChannelSendError,
+    LocalChannel,
+    LocalUnbufferedChannel
+};
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 
@@ -83,12 +87,12 @@ impl Drop for CountedElem {
 }
 
 macro_rules! gen_mpmc_tests {
-    ($mod_name:ident, $channel_type:ident) => {
+    ($mod_name:ident, $channel_type:ident, $unbuffered_channel_type:ident) => {
         mod $mod_name {
             use super::*;
 
             type ChannelType = $channel_type<i32, [i32; 3]>;
-            type UnbufferedChannelType = $channel_type<i32, [i32; 0]>;
+            type UnbufferedChannelType = $unbuffered_channel_type<i32>;
 
             fn assert_send_done<FutureType, T>(
                 cx: &mut Context,
@@ -660,16 +664,16 @@ macro_rules! gen_mpmc_tests {
     }
 }
 
-gen_mpmc_tests!(local_mpmc_channel_tests, LocalChannel);
+gen_mpmc_tests!(local_mpmc_channel_tests, LocalChannel, LocalUnbufferedChannel);
 
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use futures_intrusive::channel::{Channel, shared::channel,
+    use futures_intrusive::channel::{Channel, UnbufferedChannel, shared::channel,
         shared::Sender, shared::Receiver,
         shared::ChannelReceiveFuture, shared::ChannelSendFuture};
 
-    gen_mpmc_tests!(mpmc_channel_tests, Channel);
+    gen_mpmc_tests!(mpmc_channel_tests, Channel, UnbufferedChannel);
 
     fn is_send<T: Send>(_: &T) {
     }
