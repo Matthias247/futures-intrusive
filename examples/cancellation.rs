@@ -81,7 +81,7 @@
 
 use futures_intrusive::{
     channel::LocalChannel,
-    sync::ManualResetEvent,
+    sync::{LocalManualResetEvent, ManualResetEvent},
     timer::{StdClock, Timer, TimerService},
 };
 use futures::{
@@ -128,16 +128,33 @@ async fn fizzbuzz_search(
     // - One produces values to check
     // - The other task will check the values and store the results in the
     //   result data structure.
+    //
     // Both tasks are connected via a channel. Since the tasks are running as
     // subtasks of the same task in a singlethreaded executor, we can use an
     // extremely efficient LocalChannel for this.
+    // 
+    // In order to make things a bit more interesting we do not utilize the same
+    // cancellation signal for both tasks (which would also be a valid solution).
+    // Instead we implement a sequential shutdown:
+    // - When the main `cancellation_token` is signalled from the outside,
+    //   only the producer task will shut down.
+    // - Before the producer task exits, it will signal another cancellation
+    //   token. That one will lead the checker task to shut down.
     let channel = LocalChannel::<usize, [usize; 0]>::new();
-    let producer_future = producer_task(max, &channel, &cancellation_token);
-    let checker_future = check_task(&channel, &cancellation_token);
+    let checker_cancellation_token = LocalManualResetEvent::new(false);
+    let producer_future = producer_task(
+        max,
+        &channel,
+        &cancellation_token,
+        &checker_cancellation_token);
+    let checker_future = check_task(
+        &channel,
+        &checker_cancellation_token);
 
     // Here we wait for both tasks to complete. Waiting for all subtasks to
     // complete is one important part of structured concurrency.
     let results = join!(producer_future, checker_future);
+    println!("All subtasks have completed");
 
     // Since we waited for all subtasks to complete we can return the search
     // result.
@@ -153,37 +170,44 @@ async fn fizzbuzz_search(
 async fn producer_task(
     max: usize,
     channel: &LocalChannel<usize, [usize; 0]>,
-    cancellation_token: &ManualResetEvent
+    main_cancellation_token: &ManualResetEvent,
+    consumer_cancellation_token: &LocalManualResetEvent
 ) {
     for value in 1 .. max {
          select! {
             result = channel.send(value) => {
                 if !result.is_ok() {
-                    break;
+                    unreachable!("This can not happen in this example");
                 }
             },
-            _ = cancellation_token.wait() => {
+            _ = main_cancellation_token.wait() => {
                 // The operation was cancelled
                 break;
             }
         };
     }
 
-    // No more values to check or cancelled
-    // Closing the channel will also lead the consumer task to shut down.
-    channel.close();
+    // No more values to check or we had been cancelled.
+    // In this case we signal the `cancellation_token`, in order to let the
+    // consumer shut down.
+    // We should here have alternatively `.close()`d the channel to signal the
+    // consumer to join. However we want mainly want to demonstrate the
+    // cancellation concept here.
+    println!("Goodbye from the producer. Now signalling the checker");
+    consumer_cancellation_token.set();
 }
 
 /// The check task runs until it gets cancelled. That can happen either due
 /// to a cancellation being signalled, or due to the input channel getting
 /// closed. In a real application one of those strategies would be good sufficient.
-/// For demo purposes both possibilities are demonstrated here.
+/// Since this example focusses on cancellation and structured concurrency, this
+/// task will **always** get shut down via the cancellation token.
 ///
 /// It is important that this tasks runs to completion instead of getting
 /// forcefully cancelled. Otherwise no results would be available.
 async fn check_task(
     channel: &LocalChannel<usize, [usize; 0]>,
-    cancellation_token: &ManualResetEvent
+    cancellation_token: &LocalManualResetEvent
 ) -> SearchResult {
     // Initialize the result with `None`s
     let mut result: SearchResult = Default::default();
@@ -201,7 +225,9 @@ async fn check_task(
                         _ => {},
                     }
                 } else {
-                    break;
+                    unreachable!("this is not allowed in this example");
+                    // Otherwise just doing the following here would be ok:
+                    // break;
                 }
             },
             _ = cancellation_token.wait() => {
@@ -224,6 +250,7 @@ async fn check_task(
         }
     }
 
+    println!("Goodbye from the checker");
     result
 }
 
