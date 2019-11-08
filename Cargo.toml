@@ -31,6 +31,7 @@ crossbeam = "0.7" # For channel benchmarks
 lazy_static = "1.4.0"
 rand = "0.7"
 tokio = "0.2.0-alpha.6" # For channel benchmarks
+signal-hook = "0.1.11" # For cancellation example
 
 [[bench]]
 name = "mpmc_channel"
