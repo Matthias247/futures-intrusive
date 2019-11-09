@@ -1,5 +1,8 @@
-use futures::future::{FusedFuture, Future};
 use futures::task::{Context, Poll};
+use futures::{
+    future::{FusedFuture, Future},
+    stream::{FusedStream, Stream},
+};
 use futures_intrusive::channel::{
     ChannelSendError, LocalChannel, LocalUnbufferedChannel,
 };
@@ -86,6 +89,64 @@ impl Drop for CountedElem {
     }
 }
 
+fn assert_send_done<FutureType, T>(
+    cx: &mut Context,
+    send_fut: &mut core::pin::Pin<&mut FutureType>,
+    expected: Result<(), ChannelSendError<T>>,
+) where
+    FutureType: Future<Output = Result<(), ChannelSendError<T>>> + FusedFuture,
+    T: PartialEq + core::fmt::Debug,
+{
+    match send_fut.as_mut().poll(cx) {
+        Poll::Pending => panic!("future is not ready"),
+        Poll::Ready(res) => {
+            if res != expected {
+                panic!("Unexpected send result: {:?}", res);
+            }
+        }
+    };
+    assert!(send_fut.as_mut().is_terminated());
+}
+
+fn assert_next_done<S, T>(
+    cx: &mut Context,
+    stream_fut: &mut core::pin::Pin<&mut S>,
+    value: Option<T>,
+) where
+    S: Stream<Item = T>,
+    T: PartialEq + core::fmt::Debug,
+{
+    match stream_fut.as_mut().poll_next(cx) {
+        Poll::Pending => panic!("future is not ready"),
+        Poll::Ready(res) => {
+            if res != value {
+                panic!("Unexpected value {:?}", res);
+            }
+        }
+    };
+}
+
+// A stream future shouldn't terminate until the stream
+// terminates.
+fn assert_receive_done<FutureType, T>(
+    cx: &mut Context,
+    receive_fut: &mut core::pin::Pin<&mut FutureType>,
+    value: Option<T>,
+) where
+    FutureType: Future<Output = Option<T>> + FusedFuture,
+    T: PartialEq + core::fmt::Debug,
+{
+    match receive_fut.as_mut().poll(cx) {
+        Poll::Pending => panic!("future is not ready"),
+        Poll::Ready(res) => {
+            if res != value {
+                panic!("Unexpected value {:?}", res);
+            }
+        }
+    };
+    assert!(receive_fut.as_mut().is_terminated());
+}
+
 macro_rules! gen_mpmc_tests {
     ($mod_name:ident, $channel_type:ident, $unbuffered_channel_type:ident) => {
         mod $mod_name {
@@ -93,26 +154,6 @@ macro_rules! gen_mpmc_tests {
 
             type ChannelType = $channel_type<i32, [i32; 3]>;
             type UnbufferedChannelType = $unbuffered_channel_type<i32>;
-
-            fn assert_send_done<FutureType, T>(
-                cx: &mut Context,
-                send_fut: &mut core::pin::Pin<&mut FutureType>,
-                expected: Result<(), ChannelSendError<T>>,
-            ) where
-                FutureType: Future<Output = Result<(), ChannelSendError<T>>>
-                    + FusedFuture,
-                T: PartialEq + core::fmt::Debug,
-            {
-                match send_fut.as_mut().poll(cx) {
-                    Poll::Pending => panic!("future is not ready"),
-                    Poll::Ready(res) => {
-                        if res != expected {
-                            panic!("Unexpected send result: {:?}", res);
-                        }
-                    }
-                };
-                assert!(send_fut.as_mut().is_terminated());
-            }
 
             fn assert_send(
                 cx: &mut Context,
@@ -124,25 +165,6 @@ macro_rules! gen_mpmc_tests {
                 assert!(!send_fut.as_mut().is_terminated());
 
                 assert_send_done(cx, &mut send_fut, Ok(()));
-            }
-
-            fn assert_receive_done<FutureType, T>(
-                cx: &mut Context,
-                receive_fut: &mut core::pin::Pin<&mut FutureType>,
-                value: Option<T>,
-            ) where
-                FutureType: Future<Output = Option<T>> + FusedFuture,
-                T: PartialEq + core::fmt::Debug,
-            {
-                match receive_fut.as_mut().poll(cx) {
-                    Poll::Pending => panic!("future is not ready"),
-                    Poll::Ready(res) => {
-                        if res != value {
-                            panic!("Unexpected value {:?}", res);
-                        }
-                    }
-                };
-                assert!(receive_fut.as_mut().is_terminated());
             }
 
             macro_rules! assert_receive {
@@ -918,6 +940,110 @@ macro_rules! gen_mpmc_tests {
                 assert_send_done(cx, &mut send_fut2, Ok(()));
                 assert_send_done(cx, &mut send_fut3, Ok(()));
             }
+
+            #[test]
+            fn buffered_stream_smoke_test() {
+                let channel = ChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                let stream = channel.stream();
+                pin_mut!(stream);
+
+                // Receive after send is immediately ready.
+                for i in 0..10 {
+                    let send_fut = channel.send(i);
+                    pin_mut!(send_fut);
+
+                    assert_send_done(cx, &mut send_fut, Ok(()));
+
+                    assert_next_done(cx, &mut stream, Some(i));
+
+                    // The should be not wakups since its immediate.
+                    assert_eq!(count, 0);
+                }
+
+                // Send after receive is immediately ready.
+                for i in 0..10 {
+                    assert!(stream.as_mut().poll_next(cx).is_pending());
+                    assert_eq!(count, i as usize);
+
+                    assert_send(cx, &channel, i);
+
+                    assert_next_done(cx, &mut stream, Some(i));
+                    assert_eq!(count, i as usize + 1);
+                }
+
+                // This should block.
+                assert!(stream.as_mut().poll_next(cx).is_pending());
+
+                // This should terminate the stream.
+                channel.close();
+
+                // This should unblock.
+                assert_next_done(cx, &mut stream, None);
+                assert_eq!(count, 11);
+                assert!(stream.is_terminated());
+
+                // Future calls should all return `None`.
+                for _ in 0..10 {
+                    assert_next_done(cx, &mut stream, None);
+                    assert_eq!(count, 11);
+                }
+            }
+
+            #[test]
+            fn unbuffered_stream_smoke_test() {
+                let channel = UnbufferedChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                let stream = channel.stream();
+                pin_mut!(stream);
+
+                // Send waits for a receive.
+                for i in 0..10 {
+                    let send_fut = channel.send(i);
+                    pin_mut!(send_fut);
+                    assert!(send_fut.as_mut().poll(cx).is_pending());
+
+                    assert_next_done(cx, &mut stream, Some(i));
+                    assert_send_done(cx, &mut send_fut, Ok(()));
+
+                    assert_eq!(count, i as usize + 1);
+                }
+
+                // Receive waits for a send.
+                for i in 0..10 {
+                    assert!(stream.as_mut().poll_next(cx).is_pending());
+                    assert_eq!(count, 10 + i as usize * 2);
+
+                    let send_fut = channel.send(i);
+                    pin_mut!(send_fut);
+                    assert!(send_fut.as_mut().poll(cx).is_pending());
+
+                    assert_next_done(cx, &mut stream, Some(i));
+                    assert_send_done(cx, &mut send_fut, Ok(()));
+                    assert_eq!(count, 10 + i as usize * 2 + 2);
+                }
+
+                // This should block.
+                assert!(stream.as_mut().poll_next(cx).is_pending());
+
+                // This should terminate the stream.
+                channel.close();
+
+                // This should unblock.
+                assert_next_done(cx, &mut stream, None);
+                assert_eq!(count, 31);
+                assert!(stream.is_terminated());
+
+                // Future calls should all return `None`.
+                for _ in 0..10 {
+                    assert_next_done(cx, &mut stream, None);
+                    assert_eq!(count, 31);
+                }
+            }
         }
     };
 }
@@ -980,7 +1106,7 @@ mod if_std {
     }
 
     // Check if SharedChannel can be used in traits
-    pub trait Stream {
+    pub trait StreamTrait {
         type Output;
         type Next: Future<Output = Self::Output>;
 
@@ -995,7 +1121,7 @@ mod if_std {
         fn send(&self, value: Self::Input) -> Self::Next;
     }
 
-    impl<T> Stream for Receiver<T>
+    impl<T> StreamTrait for Receiver<T>
     where
         T: 'static,
     {
@@ -1024,7 +1150,7 @@ mod if_std {
         assert!(stream.send(value).await.is_ok());
     }
 
-    async fn read_stream<S: Stream<Output = Option<i32>>>(
+    async fn read_stream<S: StreamTrait<Output = Option<i32>>>(
         stream: &S,
     ) -> Option<i32> {
         stream.next().await
@@ -1226,6 +1352,59 @@ mod if_std {
             Poll::Ready(Err(ChannelSendError(49))) => {}
             Poll::Ready(v) => panic!("Unexpected value {:?}", v),
             Poll::Pending => panic!("Expected channel to be closed"),
+        }
+    }
+
+    #[test]
+    fn shared_stream_smoke_test() {
+        let (sender, receiver) = channel::<i32>(3);
+        let (waker, count) = new_count_waker();
+        let cx = &mut Context::from_waker(&waker);
+
+        let stream = receiver.into_stream();
+        pin_mut!(stream);
+
+        // Receive after send is immediately ready.
+        for i in 0..10 {
+            let send_fut = sender.send(i);
+            pin_mut!(send_fut);
+
+            assert_send_done(cx, &mut send_fut, Ok(()));
+
+            assert_next_done(cx, &mut stream, Some(i));
+
+            // The should be not wakups since its immediate.
+            assert_eq!(count, 0);
+        }
+
+        // Send after receive is immediately ready.
+        for i in 0..10 {
+            assert!(stream.as_mut().poll_next(cx).is_pending());
+            assert_eq!(count, i as usize);
+
+            let send_fut = sender.send(i);
+            pin_mut!(send_fut);
+            assert_send_done(cx, &mut send_fut, Ok(()));
+
+            assert_next_done(cx, &mut stream, Some(i));
+            assert_eq!(count, i as usize + 1);
+        }
+
+        // This should block.
+        assert!(stream.as_mut().poll_next(cx).is_pending());
+
+        // This should terminate the stream.
+        sender.close();
+
+        // This should unblock.
+        assert_next_done(cx, &mut stream, None);
+        assert_eq!(count, 11);
+        assert!(stream.is_terminated());
+
+        // Future calls should all return `None`.
+        for _ in 0..10 {
+            assert_next_done(cx, &mut stream, None);
+            assert_eq!(count, 11);
         }
     }
 }

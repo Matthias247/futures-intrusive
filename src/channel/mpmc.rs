@@ -6,8 +6,12 @@ use crate::{
     utils::update_waker_ref,
     NoopLock,
 };
-use core::marker::PhantomData;
-use futures_core::task::{Context, Poll};
+use core::{marker::PhantomData, pin::Pin};
+use futures_core::{
+    future::Future,
+    stream::{FusedStream, Stream},
+    task::{Context, Poll},
+};
 use lock_api::{Mutex, RawMutex};
 
 use super::{
@@ -449,6 +453,17 @@ where
         self.inner.lock().try_receive()
     }
 
+    /// Returns a stream that will receive values from this channel.
+    ///
+    /// This stream does not yield `None` when the channel is empty,
+    /// instead it yields `None` when it is terminated.
+    pub fn stream(&self) -> ChannelStream<MutexType, T, A> {
+        ChannelStream {
+            channel: Some(self),
+            future: None,
+        }
+    }
+
     /// Closes the channel.
     /// All pending and future send attempts will fail.
     /// Receive attempts will continue to succeed as long as there are items
@@ -497,6 +512,83 @@ where
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
     ) {
         self.inner.lock().remove_receive_waiter(wait_node)
+    }
+}
+
+/// A stream that receives from a `GenericChannel`.
+///
+/// Not driving the `ChannelStream` to completion after it has been polled
+/// might lead to lost wakeup notifications.
+#[derive(Debug)]
+pub struct ChannelStream<'a, MutexType: RawMutex, T, A>
+where
+    A: RingBuf<Item = T>,
+{
+    channel: Option<&'a GenericChannel<MutexType, T, A>>,
+    future: Option<ChannelReceiveFuture<'a, MutexType, T>>,
+}
+
+impl<'a, MutexType, T, A> Stream for ChannelStream<'a, MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
+    MutexType: RawMutex,
+{
+    type Item = T;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<Self::Item>> {
+        // It might be possible to use Pin::map_unchecked here instead of the two unsafe APIs.
+        // However this didn't seem to work for some borrow checker reasons
+
+        // Safety: The next operations are safe, because Pin promises us that
+        // the address of the wait queue entry inside ChannelReceiveFuture is stable,
+        // and we don't move any fields inside the future until it gets dropped.
+        let mut_self: &mut Self = unsafe { Pin::get_unchecked_mut(self) };
+        match mut_self.channel.take() {
+            Some(channel) => {
+                // Poll the next element.
+                if mut_self.future.is_none() {
+                    mut_self.future.replace(channel.receive());
+                }
+                let fut = mut_self.future.as_mut().unwrap();
+
+                // Safety: We guarantee that the pinned future will not move until
+                // it resolves by storing it as part of the pinned `Stream`
+                let poll = unsafe {
+                    let pin_fut = Pin::new_unchecked(fut);
+                    pin_fut.poll(cx)
+                };
+
+                // Future was resolved, drop it.
+                if poll.is_ready() {
+                    mut_self.future.take();
+
+                    // If the channel was terminated, we let it drop.
+                    if let Poll::Ready(None) = &poll {
+                        return poll;
+                    }
+                }
+
+                // The channel was not terminated, so we reuse it.
+                mut_self.channel.replace(channel);
+
+                poll
+            }
+            // Channel was terminated.
+            None => Poll::Ready(None),
+        }
+    }
+}
+
+impl<'a, MutexType, T, A> FusedStream for ChannelStream<'a, MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
+    MutexType: RawMutex,
+{
+    fn is_terminated(&self) -> bool {
+        self.channel.is_none()
     }
 }
 
@@ -832,6 +924,98 @@ mod if_alloc {
             /// stored inside the channel. Further attempts will return `None`.
             pub fn close(&self) {
                 self.inner.channel.close()
+            }
+
+            /// Returns a stream that will receive values from this channel.
+            ///
+            /// This stream does not yield `None` when the channel is empty,
+            /// instead it yields `None` when it is terminated.
+            pub fn into_stream(self) -> SharedStream<MutexType, T, A> {
+                SharedStream {
+                    receiver: Some(self),
+                    future: None,
+                }
+            }
+        }
+
+        /// A stream that receives from channel using a `GenericReceiver`.
+        ///
+        /// Not driving the `SharedStream` to completion after it has been polled
+        /// might lead to lost wakeup notifications.
+        #[derive(Debug)]
+        pub struct SharedStream<MutexType, T, A>
+        where
+            MutexType: 'static + RawMutex,
+            T: 'static,
+            A: 'static + RingBuf<Item = T>,
+        {
+            receiver: Option<GenericReceiver<MutexType, T, A>>,
+            future: Option<ChannelReceiveFuture<MutexType, T>>,
+        }
+
+        impl<MutexType, T, A> Stream for SharedStream<MutexType, T, A>
+        where
+            MutexType: RawMutex,
+            A: 'static + RingBuf<Item = T>,
+        {
+            type Item = T;
+
+            fn poll_next(
+                self: Pin<&mut Self>,
+                cx: &mut Context,
+            ) -> Poll<Option<Self::Item>> {
+                // It might be possible to use Pin::map_unchecked here instead of the two unsafe APIs.
+                // However this didn't seem to work for some borrow checker reasons
+
+                // Safety: The next operations are safe, because Pin promises us that
+                // the address of the wait queue entry inside ChannelReceiveFuture is stable,
+                // and we don't move any fields inside the future until it gets dropped.
+                let mut_self: &mut Self =
+                    unsafe { Pin::get_unchecked_mut(self) };
+                match mut_self.receiver.take() {
+                    Some(receiver) => {
+                        // Poll the next element.
+                        if mut_self.future.is_none() {
+                            mut_self.future.replace(receiver.receive());
+                        }
+                        let fut = mut_self.future.as_mut().unwrap();
+
+                        // Safety: We guarantee that the pinned future will not move until
+                        // it resolves by storing it as part of the pinned `Stream`
+                        let poll = unsafe {
+                            let pin_fut = Pin::new_unchecked(fut);
+                            pin_fut.poll(cx)
+                        };
+
+                        // Future was resolved, drop it.
+                        if poll.is_ready() {
+                            mut_self.future.take();
+
+                            // If the channel was terminated, we let the
+                            // receiver drop.
+                            if let Poll::Ready(None) = &poll {
+                                return poll;
+                            }
+                        }
+
+                        // The channel was not terminated, so we keep the receiver.
+                        mut_self.receiver.replace(receiver);
+
+                        poll
+                    }
+                    // Channel was terminated.
+                    None => Poll::Ready(None),
+                }
+            }
+        }
+
+        impl<MutexType, T, A> FusedStream for SharedStream<MutexType, T, A>
+        where
+            MutexType: RawMutex,
+            A: 'static + RingBuf<Item = T>,
+        {
+            fn is_terminated(&self) -> bool {
+                self.receiver.is_none()
             }
         }
 
