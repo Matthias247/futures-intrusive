@@ -1,13 +1,13 @@
 //! An asynchronously awaitable state broadcasting channel
 
-use futures_core::future::{Future, FusedFuture};
-use futures_core::task::{Context, Poll, Waker};
-use std::marker::PhantomData;
-use core::pin::Pin;
-use lock_api::{RawMutex, Mutex};
-use crate::NoopLock;
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
 use super::ChannelSendError;
+use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::pin::Pin;
+use futures_core::future::{FusedFuture, Future};
+use futures_core::task::{Context, Poll, Waker};
+use lock_api::{Mutex, RawMutex};
+use std::marker::PhantomData;
 
 /// An ID, which allows to differentiate states received from a Channel.
 /// Elements with a bigger state ID (`id > otherId`) have been published more
@@ -64,7 +64,10 @@ pub trait ChannelReceiveAccess<T> {
         cx: &mut Context<'_>,
     ) -> Poll<Option<(StateId, T)>>;
 
-    fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>);
+    fn remove_receive_waiter(
+        &self,
+        wait_node: &mut ListNode<RecvWaitQueueEntry>,
+    );
 }
 
 /// A Future that is returned by the `receive` function on a state broadcast channel.
@@ -80,7 +83,8 @@ pub trait ChannelReceiveAccess<T> {
 /// channel, the future will resolve to `None`.
 #[must_use = "futures do nothing unless polled"]
 pub struct StateReceiveFuture<'a, MutexType, T>
-where T: Clone
+where
+    T: Clone,
 {
     /// The channel that is associated with this StateReceiveFuture
     channel: Option<&'a dyn ChannelReceiveAccess<T>>,
@@ -93,17 +97,20 @@ where T: Clone
 // Safety: Channel futures can be sent between threads as long as the underlying
 // channel is thread-safe (Sync), which allows to poll/register/unregister from
 // a different thread.
-unsafe impl<'a, MutexType: Sync, T: Clone + Send> Send for StateReceiveFuture<'a, MutexType, T> {}
+unsafe impl<'a, MutexType: Sync, T: Clone + Send> Send
+    for StateReceiveFuture<'a, MutexType, T>
+{
+}
 
-impl<'a, MutexType, T: Clone> core::fmt::Debug for StateReceiveFuture<'a, MutexType, T> {
+impl<'a, MutexType, T: Clone> core::fmt::Debug
+    for StateReceiveFuture<'a, MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("StateReceiveFuture")
-            .finish()
+        f.debug_struct("StateReceiveFuture").finish()
     }
 }
 
-impl<'a, MutexType, T: Clone> Future for StateReceiveFuture<'a, MutexType, T>
-{
+impl<'a, MutexType, T: Clone> Future for StateReceiveFuture<'a, MutexType, T> {
     type Output = Option<(StateId, T)>;
 
     fn poll(
@@ -116,15 +123,15 @@ impl<'a, MutexType, T: Clone> Future for StateReceiveFuture<'a, MutexType, T>
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside StateReceiveFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut StateReceiveFuture<MutexType, T> = unsafe {
-            Pin::get_unchecked_mut(self)
-        };
+        let mut_self: &mut StateReceiveFuture<MutexType, T> =
+            unsafe { Pin::get_unchecked_mut(self) };
 
-        let channel = mut_self.channel.expect("polled StateReceiveFuture after completion");
+        let channel = mut_self
+            .channel
+            .expect("polled StateReceiveFuture after completion");
 
-        let poll_res = unsafe {
-            channel.try_receive(&mut mut_self.wait_node, cx)
-        };
+        let poll_res =
+            unsafe { channel.try_receive(&mut mut_self.wait_node, cx) };
 
         if poll_res.is_ready() {
             // A value was available
@@ -135,7 +142,9 @@ impl<'a, MutexType, T: Clone> Future for StateReceiveFuture<'a, MutexType, T>
     }
 }
 
-impl<'a, MutexType, T: Clone> FusedFuture for StateReceiveFuture<'a, MutexType, T> {
+impl<'a, MutexType, T: Clone> FusedFuture
+    for StateReceiveFuture<'a, MutexType, T>
+{
     fn is_terminated(&self) -> bool {
         self.channel.is_none()
     }
@@ -179,7 +188,9 @@ struct ChannelState<T> {
 }
 
 impl<T> ChannelState<T>
-where T: Clone {
+where
+    T: Clone,
+{
     fn new() -> ChannelState<T> {
         ChannelState::<T> {
             is_closed: false,
@@ -245,7 +256,7 @@ where T: Clone {
                 let val_to_deliver = match &self.value {
                     Some(ref v) if wait_node.state_id < self.state_id => {
                         Some(v.clone())
-                    },
+                    }
                     Some(_) | None => None,
                 };
 
@@ -253,7 +264,7 @@ where T: Clone {
                     Some(v) => {
                         // A value that satisfies the caller is available.
                         Poll::Ready(Some((self.state_id, v)))
-                    },
+                    }
                     None => {
                         // Check if something was written into the channel before
                         // or the channel was closed.
@@ -268,12 +279,12 @@ where T: Clone {
                         }
                     }
                 }
-            },
+            }
             RecvPollState::Registered => {
                 // Since the channel wakes up all waiters and moves their states to unregistered
                 // there can't be any value in the channel in this state.
                 Poll::Pending
-            },
+            }
         }
     }
 
@@ -281,7 +292,7 @@ where T: Clone {
         // StateReceiveFuture only needs to get removed if it had been added to
         // the wait queue of the channel. This has happened in the RecvPollState::Waiting case.
         if let RecvPollState::Registered = wait_node.state {
-            if ! unsafe { self.waiters.remove(wait_node) } {
+            if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the RecvWaitQueueEntry got moved after the initial poll.
                 panic!("Future could not be removed from wait queue");
@@ -304,22 +315,33 @@ pub struct GenericStateBroadcastChannel<MutexType: RawMutex, T> {
 
 // The channel can be sent to other threads as long as it's not borrowed and the
 // value in it can be sent to other threads.
-unsafe impl<MutexType: RawMutex + Send, T: Send> Send for GenericStateBroadcastChannel<MutexType, T> {}
+unsafe impl<MutexType: RawMutex + Send, T: Send> Send
+    for GenericStateBroadcastChannel<MutexType, T>
+{
+}
 // The channel is thread-safe as long as a thread-safe mutex is used
-unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync for GenericStateBroadcastChannel<MutexType, T> {}
+unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync
+    for GenericStateBroadcastChannel<MutexType, T>
+{
+}
 
-impl<MutexType: RawMutex, T> core::fmt::Debug for GenericStateBroadcastChannel<MutexType, T> {
+impl<MutexType: RawMutex, T> core::fmt::Debug
+    for GenericStateBroadcastChannel<MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericStateBroadcastChannel")
-            .finish()
+        f.debug_struct("GenericStateBroadcastChannel").finish()
     }
 }
 
 impl<MutexType: RawMutex, T> GenericStateBroadcastChannel<MutexType, T>
-where T: Clone {
+where
+    T: Clone,
+{
     /// Creates a new State Broadcast Channel in the given state
     pub fn new() -> GenericStateBroadcastChannel<MutexType, T>
-    where T: Clone {
+    where
+        T: Clone,
+    {
         GenericStateBroadcastChannel {
             inner: Mutex::new(ChannelState::new()),
         }
@@ -353,7 +375,10 @@ where T: Clone {
     /// The returned [`StateReceiveFuture`] will get fulfilled with the
     /// retrieved value as well as the [`StateId`] which is required to retrieve
     /// the following state.
-    pub fn receive(&self, state_id: StateId) -> StateReceiveFuture<MutexType, T> {
+    pub fn receive(
+        &self,
+        state_id: StateId,
+    ) -> StateReceiveFuture<MutexType, T> {
         StateReceiveFuture {
             channel: Some(self),
             wait_node: ListNode::new(RecvWaitQueueEntry::new(state_id)),
@@ -362,7 +387,9 @@ where T: Clone {
     }
 }
 
-impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T> for GenericStateBroadcastChannel<MutexType, T> {
+impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T>
+    for GenericStateBroadcastChannel<MutexType, T>
+{
     unsafe fn try_receive(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
@@ -371,7 +398,10 @@ impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T> for GenericStateBroa
         self.inner.lock().try_receive(wait_node, cx)
     }
 
-    fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>) {
+    fn remove_receive_waiter(
+        &self,
+        wait_node: &mut ListNode<RecvWaitQueueEntry>,
+    ) {
         self.inner.lock().remove_waiter(wait_node)
     }
 }
@@ -379,7 +409,8 @@ impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T> for GenericStateBroa
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericStateBroadcastChannel`] which is not thread-safe.
-pub type LocalStateBroadcastChannel<T> = GenericStateBroadcastChannel<NoopLock, T>;
+pub type LocalStateBroadcastChannel<T> =
+    GenericStateBroadcastChannel<NoopLock, T>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -388,7 +419,8 @@ mod if_std {
     // Export a thread-safe version using parking_lot::RawMutex
 
     /// A [`GenericStateBroadcastChannel`] implementation backed by [`parking_lot`].
-    pub type StateBroadcastChannel<T> = GenericStateBroadcastChannel<parking_lot::RawMutex, T>;
+    pub type StateBroadcastChannel<T> =
+        GenericStateBroadcastChannel<parking_lot::RawMutex, T>;
 }
 
 #[cfg(feature = "std")]
@@ -406,7 +438,10 @@ mod if_alloc {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct GenericStateBroadcastChannelSharedState<MutexType, T>
-        where MutexType: RawMutex, T: Clone + 'static {
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
+        {
             /// The amount of [`GenericSender`] instances which reference this state.
             senders: AtomicUsize,
             /// The amount of [`GenericReceiver`] instances which reference this state.
@@ -417,20 +452,24 @@ mod if_alloc {
 
         // Implement ChannelReceiveAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl <MutexType, T> ChannelReceiveAccess<T> for GenericStateBroadcastChannelSharedState<MutexType, T>
-        where MutexType: RawMutex, T: Clone + 'static
+        impl<MutexType, T> ChannelReceiveAccess<T>
+            for GenericStateBroadcastChannelSharedState<MutexType, T>
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
         {
             unsafe fn try_receive(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
-            ) -> Poll<Option<(StateId, T)>>
-            {
+            ) -> Poll<Option<(StateId, T)>> {
                 self.channel.try_receive(wait_node, cx)
             }
 
-            fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>)
-            {
+            fn remove_receive_waiter(
+                &self,
+                wait_node: &mut ListNode<RecvWaitQueueEntry>,
+            ) {
                 self.channel.remove_receive_waiter(wait_node)
             }
         }
@@ -459,12 +498,14 @@ mod if_alloc {
         // Safety: Channel futures can be sent between threads as long as the underlying
         // channel is thread-safe (Sync), which allows to poll/register/unregister from
         // a different thread.
-        unsafe impl<MutexType: Sync, T: Clone + Send> Send for StateReceiveFuture<MutexType, T> {}
+        unsafe impl<MutexType: Sync, T: Clone + Send> Send
+            for StateReceiveFuture<MutexType, T>
+        {
+        }
 
         impl<MutexType, T> core::fmt::Debug for StateReceiveFuture<MutexType, T> {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("StateReceiveFuture")
-                    .finish()
+                f.debug_struct("StateReceiveFuture").finish()
             }
         }
 
@@ -481,22 +522,21 @@ mod if_alloc {
                 // Safety: The next operations are safe, because Pin promises us that
                 // the address of the wait queue entry inside StateReceiveFuture is stable,
                 // and we don't move any fields inside the future until it gets dropped.
-                let mut_self: &mut StateReceiveFuture<MutexType, T> = unsafe {
-                    Pin::get_unchecked_mut(self)
-                };
+                let mut_self: &mut StateReceiveFuture<MutexType, T> =
+                    unsafe { Pin::get_unchecked_mut(self) };
 
-                let channel = mut_self.channel.take().expect(
-                    "polled StateReceiveFuture after completion");
+                let channel = mut_self
+                    .channel
+                    .take()
+                    .expect("polled StateReceiveFuture after completion");
 
-                let poll_res = unsafe {
-                    channel.try_receive(&mut mut_self.wait_node, cx)
-                };
+                let poll_res =
+                    unsafe { channel.try_receive(&mut mut_self.wait_node, cx) };
 
                 if poll_res.is_ready() {
                     // A value was available
                     mut_self.channel = None;
-                }
-                else {
+                } else {
                     mut_self.channel = Some(channel)
                 }
 
@@ -526,8 +566,13 @@ mod if_alloc {
         ///
         /// Values can be sent into the channel through `send`.
         pub struct GenericStateSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone + 'static {
-            inner: std::sync::Arc<GenericStateBroadcastChannelSharedState<MutexType, T>>,
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
+        {
+            inner: std::sync::Arc<
+                GenericStateBroadcastChannelSharedState<MutexType, T>,
+            >,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -536,30 +581,43 @@ mod if_alloc {
         /// Tasks can receive values from the channel through the `receive` method.
         /// The returned Future will get resolved when a value is sent into the channel.
         pub struct GenericStateReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone + 'static {
-            inner: std::sync::Arc<GenericStateBroadcastChannelSharedState<MutexType, T>>,
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
+        {
+            inner: std::sync::Arc<
+                GenericStateBroadcastChannelSharedState<MutexType, T>,
+            >,
         }
 
         impl<MutexType, T> core::fmt::Debug for GenericStateSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("StateSender")
-                    .finish()
+                f.debug_struct("StateSender").finish()
             }
         }
 
         impl<MutexType, T> core::fmt::Debug for GenericStateReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("StateReceiver")
-                    .finish()
+                f.debug_struct("StateReceiver").finish()
             }
         }
 
         impl<MutexType, T> Clone for GenericStateSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn clone(&self) -> Self {
-                let old_size = self.inner.senders.fetch_add(1, Ordering::Relaxed);
+                let old_size =
+                    self.inner.senders.fetch_add(1, Ordering::Relaxed);
                 if old_size > (core::isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
@@ -570,7 +628,10 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Drop for GenericStateSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn drop(&mut self) {
                 if self.inner.senders.fetch_sub(1, Ordering::Release) != 1 {
                     return;
@@ -583,9 +644,13 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Clone for GenericStateReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn clone(&self) -> Self {
-                let old_size = self.inner.receivers.fetch_add(1, Ordering::Relaxed);
+                let old_size =
+                    self.inner.receivers.fetch_add(1, Ordering::Relaxed);
                 if old_size > (core::isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
@@ -596,7 +661,10 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Drop for GenericStateReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn drop(&mut self) {
                 if self.inner.receivers.fetch_sub(1, Ordering::Release) != 1 {
                     return;
@@ -622,11 +690,16 @@ mod if_alloc {
         /// # use futures_intrusive::channel::shared::state_broadcast_channel;
         /// let (sender, receiver) = state_broadcast_channel::<i32>();
         /// ```
-        pub fn generic_state_broadcast_channel<MutexType, T>() ->
-            (GenericStateSender<MutexType, T>, GenericStateReceiver<MutexType, T>)
-        where MutexType: RawMutex, T: Clone + Send {
-            let inner = std::sync::Arc::new(
-                GenericStateBroadcastChannelSharedState {
+        pub fn generic_state_broadcast_channel<MutexType, T>() -> (
+            GenericStateSender<MutexType, T>,
+            GenericStateReceiver<MutexType, T>,
+        )
+        where
+            MutexType: RawMutex,
+            T: Clone + Send,
+        {
+            let inner =
+                std::sync::Arc::new(GenericStateBroadcastChannelSharedState {
                     channel: GenericStateBroadcastChannel::new(),
                     senders: AtomicUsize::new(1),
                     receivers: AtomicUsize::new(1),
@@ -635,15 +708,16 @@ mod if_alloc {
             let sender = GenericStateSender {
                 inner: inner.clone(),
             };
-            let receiver = GenericStateReceiver {
-                inner,
-            };
+            let receiver = GenericStateReceiver { inner };
 
             (sender, receiver)
         }
 
         impl<MutexType, T> GenericStateSender<MutexType, T>
-        where MutexType: RawMutex + 'static, T: Clone {
+        where
+            MutexType: RawMutex + 'static,
+            T: Clone,
+        {
             /// Writes a single value to the channel.
             ///
             /// This will notify waiters about the availability of the value.
@@ -656,7 +730,10 @@ mod if_alloc {
         }
 
         impl<MutexType, T> GenericStateReceiver<MutexType, T>
-        where MutexType: RawMutex + 'static, T: Clone {
+        where
+            MutexType: RawMutex + 'static,
+            T: Clone,
+        {
             /// Returns a future that gets fulfilled when a value is written to the channel
             /// or the channel is closed.
             /// `state_id` specifies the minimum state ID that should be retrieved
@@ -665,7 +742,10 @@ mod if_alloc {
             /// The returned [`StateReceiveFuture`] will get fulfilled with the
             /// retrieved value as well as the [`StateId`] which is required to retrieve
             /// the following state
-            pub fn receive(&self, state_id: StateId) -> StateReceiveFuture<MutexType, T> {
+            pub fn receive(
+                &self,
+                state_id: StateId,
+            ) -> StateReceiveFuture<MutexType, T> {
                 StateReceiveFuture {
                     channel: Some(self.inner.clone()),
                     wait_node: ListNode::new(RecvWaitQueueEntry::new(state_id)),
@@ -680,15 +760,20 @@ mod if_alloc {
             use super::*;
 
             /// A [`GenericStateSender`] implementation backed by [`parking_lot`].
-            pub type StateSender<T> = GenericStateSender<parking_lot::RawMutex, T>;
+            pub type StateSender<T> =
+                GenericStateSender<parking_lot::RawMutex, T>;
             /// A [`GenericStateReceiver`] implementation backed by [`parking_lot`].
-            pub type StateReceiver<T> = GenericStateReceiver<parking_lot::RawMutex, T>;
+            pub type StateReceiver<T> =
+                GenericStateReceiver<parking_lot::RawMutex, T>;
 
             /// Creates a new state broadcast channel.
             ///
             /// Refer to [`generic_state_broadcast_channel`] for details.
-            pub fn state_broadcast_channel<T>() -> (StateSender<T>, StateReceiver<T>)
-            where T: Clone + Send {
+            pub fn state_broadcast_channel<T>(
+            ) -> (StateSender<T>, StateReceiver<T>)
+            where
+                T: Clone + Send,
+            {
                 generic_state_broadcast_channel::<parking_lot::RawMutex, T>()
             }
         }

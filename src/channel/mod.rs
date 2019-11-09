@@ -4,45 +4,34 @@
 //! asynchronous tasks.
 
 mod error;
-pub use self::error::{ChannelSendError};
+pub use self::error::ChannelSendError;
 
 mod channel_future;
 use channel_future::{
-    RecvPollState, RecvWaitQueueEntry,
+    ChannelReceiveAccess, ChannelSendAccess, RecvPollState, RecvWaitQueueEntry,
     SendPollState, SendWaitQueueEntry,
-    ChannelSendAccess, ChannelReceiveAccess,};
-pub use channel_future::{
-    ChannelReceiveFuture, ChannelSendFuture};
+};
+pub use channel_future::{ChannelReceiveFuture, ChannelSendFuture};
 
 mod oneshot;
 
-pub use self::oneshot::{
-    GenericOneshotChannel,
-    LocalOneshotChannel,
-};
+pub use self::oneshot::{GenericOneshotChannel, LocalOneshotChannel};
 
 #[cfg(feature = "std")]
-pub use self::oneshot::{
-    OneshotChannel,
-};
+pub use self::oneshot::OneshotChannel;
 
 mod oneshot_broadcast;
 
 pub use self::oneshot_broadcast::{
-    GenericOneshotBroadcastChannel,
-    LocalOneshotBroadcastChannel,
+    GenericOneshotBroadcastChannel, LocalOneshotBroadcastChannel,
 };
 
 #[cfg(feature = "std")]
-pub use self::oneshot_broadcast::{
-    OneshotBroadcastChannel,
-};
+pub use self::oneshot_broadcast::OneshotBroadcastChannel;
 
 mod state_broadcast;
 pub use state_broadcast::{
-    StateId,
-    GenericStateBroadcastChannel,
-    LocalStateBroadcastChannel,
+    GenericStateBroadcastChannel, LocalStateBroadcastChannel, StateId,
     StateReceiveFuture,
 };
 
@@ -51,17 +40,10 @@ pub use self::state_broadcast::StateBroadcastChannel;
 
 mod mpmc;
 
-pub use self::mpmc::{
-    GenericChannel,
-    LocalChannel,
-    LocalUnbufferedChannel,
-};
+pub use self::mpmc::{GenericChannel, LocalChannel, LocalUnbufferedChannel};
 
 #[cfg(feature = "std")]
-pub use self::mpmc::{
-    Channel,
-    UnbufferedChannel,
-};
+pub use self::mpmc::{Channel, UnbufferedChannel};
 
 // The next section should really integrated if the alloc feature is active,
 // since it mainly requires `Arc` to be available. However for simplicity reasons

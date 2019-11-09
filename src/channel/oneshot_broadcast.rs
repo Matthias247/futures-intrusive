@@ -1,15 +1,16 @@
 //! An asynchronously awaitable oneshot channel which can be awaited by
 //! multiple consumers.
 
-use core::marker::PhantomData;
-use futures_core::task::{Context, Poll};
-use lock_api::{RawMutex, Mutex};
-use crate::NoopLock;
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
 use super::ChannelSendError;
 use super::{
-    RecvPollState, RecvWaitQueueEntry,
-    ChannelReceiveFuture, ChannelReceiveAccess};
+    ChannelReceiveAccess, ChannelReceiveFuture, RecvPollState,
+    RecvWaitQueueEntry,
+};
+use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::marker::PhantomData;
+use futures_core::task::{Context, Poll};
+use lock_api::{Mutex, RawMutex};
 
 unsafe fn wake_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
     // Reverse the waiter list, so that the oldest waker (which is
@@ -36,7 +37,9 @@ struct ChannelState<T> {
 }
 
 impl<T> ChannelState<T>
-where T: Clone {
+where
+    T: Clone,
+{
     fn new() -> ChannelState<T> {
         ChannelState::<T> {
             is_fulfilled: false,
@@ -101,31 +104,30 @@ where T: Clone {
                         // TODO: If the same waiter asks again, they will always
                         // get the same value, instead of `None`. Is that reasonable?
                         Poll::Ready(Some(v.clone()))
-                    },
+                    }
                     None => {
                         // Check if something was written into the channel before
                         // or the channel was closed.
                         if self.is_fulfilled {
                             Poll::Ready(None)
-                        }
-                        else {
+                        } else {
                             // Added the task to the wait queue
                             wait_node.task = Some(cx.waker().clone());
                             wait_node.state = RecvPollState::Registered;
                             self.waiters.add_front(wait_node);
                             Poll::Pending
                         }
-                    },
+                    }
                 }
-            },
+            }
             RecvPollState::Registered => {
                 // Since the channel wakes up all waiters and moves their states to unregistered
                 // there can't be any value in the channel in this state.
                 Poll::Pending
-            },
+            }
             RecvPollState::Notified => {
                 unreachable!("Not possible for Oneshot Broadcast");
-            },
+            }
         }
     }
 
@@ -133,7 +135,7 @@ where T: Clone {
         // ChannelReceiveFuture only needs to get removed if it had been added to
         // the wait queue of the channel. This has happened in the RecvPollState::Waiting case.
         if let RecvPollState::Registered = wait_node.state {
-            if ! unsafe { self.waiters.remove(wait_node) } {
+            if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the RecvWaitQueueEntry got moved after the initial poll.
                 panic!("Future could not be removed from wait queue");
@@ -157,19 +159,28 @@ pub struct GenericOneshotBroadcastChannel<MutexType: RawMutex, T> {
 
 // The channel can be sent to other threads as long as it's not borrowed and the
 // value in it can be sent to other threads.
-unsafe impl<MutexType: RawMutex + Send, T: Send> Send for GenericOneshotBroadcastChannel<MutexType, T> {}
+unsafe impl<MutexType: RawMutex + Send, T: Send> Send
+    for GenericOneshotBroadcastChannel<MutexType, T>
+{
+}
 // The channel is thread-safe as long as a thread-safe mutex is used
-unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync for GenericOneshotBroadcastChannel<MutexType, T> {}
+unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync
+    for GenericOneshotBroadcastChannel<MutexType, T>
+{
+}
 
-impl<MutexType: RawMutex, T> core::fmt::Debug for GenericOneshotBroadcastChannel<MutexType, T> {
+impl<MutexType: RawMutex, T> core::fmt::Debug
+    for GenericOneshotBroadcastChannel<MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericOneshotBroadcastChannel")
-            .finish()
+        f.debug_struct("GenericOneshotBroadcastChannel").finish()
     }
 }
 
 impl<MutexType: RawMutex, T> GenericOneshotBroadcastChannel<MutexType, T>
-where T: Clone {
+where
+    T: Clone,
+{
     /// Creates a new OneshotBroadcastChannel in the given state
     pub fn new() -> GenericOneshotBroadcastChannel<MutexType, T> {
         GenericOneshotBroadcastChannel {
@@ -208,8 +219,11 @@ where T: Clone {
     }
 }
 
-impl<MutexType: RawMutex, T> ChannelReceiveAccess<T> for GenericOneshotBroadcastChannel<MutexType, T>
-where T: Clone {
+impl<MutexType: RawMutex, T> ChannelReceiveAccess<T>
+    for GenericOneshotBroadcastChannel<MutexType, T>
+where
+    T: Clone,
+{
     unsafe fn try_receive(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
@@ -218,7 +232,10 @@ where T: Clone {
         self.inner.lock().try_receive(wait_node, cx)
     }
 
-    fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>) {
+    fn remove_receive_waiter(
+        &self,
+        wait_node: &mut ListNode<RecvWaitQueueEntry>,
+    ) {
         self.inner.lock().remove_waiter(wait_node)
     }
 }
@@ -226,7 +243,8 @@ where T: Clone {
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericOneshotBroadcastChannel`] which is not thread-safe.
-pub type LocalOneshotBroadcastChannel<T> = GenericOneshotBroadcastChannel<NoopLock, T>;
+pub type LocalOneshotBroadcastChannel<T> =
+    GenericOneshotBroadcastChannel<NoopLock, T>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -235,7 +253,8 @@ mod if_std {
     // Export a thread-safe version using parking_lot::RawMutex
 
     /// A [`GenericOneshotBroadcastChannel`] implementation backed by [`parking_lot`].
-    pub type OneshotBroadcastChannel<T> = GenericOneshotBroadcastChannel<parking_lot::RawMutex, T>;
+    pub type OneshotBroadcastChannel<T> =
+        GenericOneshotBroadcastChannel<parking_lot::RawMutex, T>;
 }
 
 #[cfg(feature = "std")]
@@ -253,26 +272,33 @@ mod if_alloc {
         use crate::channel::shared::ChannelReceiveFuture;
 
         struct GenericOneshotChannelSharedState<MutexType, T>
-        where MutexType: RawMutex, T: 'static {
+        where
+            MutexType: RawMutex,
+            T: 'static,
+        {
             channel: GenericOneshotBroadcastChannel<MutexType, T>,
         }
 
         // Implement ChannelReceiveAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl <MutexType, T> ChannelReceiveAccess<T> for GenericOneshotChannelSharedState<MutexType, T>
-        where MutexType: RawMutex, T: Clone
+        impl<MutexType, T> ChannelReceiveAccess<T>
+            for GenericOneshotChannelSharedState<MutexType, T>
+        where
+            MutexType: RawMutex,
+            T: Clone,
         {
             unsafe fn try_receive(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
-            ) -> Poll<Option<T>>
-            {
+            ) -> Poll<Option<T>> {
                 self.channel.try_receive(wait_node, cx)
             }
 
-            fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>)
-            {
+            fn remove_receive_waiter(
+                &self,
+                wait_node: &mut ListNode<RecvWaitQueueEntry>,
+            ) {
                 self.channel.remove_receive_waiter(wait_node)
             }
         }
@@ -282,8 +308,12 @@ mod if_alloc {
         ///
         /// Values can be sent into the channel through `send`.
         pub struct GenericOneshotBroadcastSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone + 'static {
-            inner: std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
+        {
+            inner:
+                std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -293,28 +323,41 @@ mod if_alloc {
         /// The returned Future will get resolved when a value is sent into the channel.
         #[derive(Clone)]
         pub struct GenericOneshotBroadcastReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone + 'static {
-            inner: std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
+        {
+            inner:
+                std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
         }
 
-        impl<MutexType, T> core::fmt::Debug for GenericOneshotBroadcastSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        impl<MutexType, T> core::fmt::Debug
+            for GenericOneshotBroadcastSender<MutexType, T>
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("OneshotBroadcastSender")
-                    .finish()
+                f.debug_struct("OneshotBroadcastSender").finish()
             }
         }
 
-        impl<MutexType, T> core::fmt::Debug for GenericOneshotBroadcastReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        impl<MutexType, T> core::fmt::Debug
+            for GenericOneshotBroadcastReceiver<MutexType, T>
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("OneshotBroadcastReceiver")
-                    .finish()
+                f.debug_struct("OneshotBroadcastReceiver").finish()
             }
         }
 
         impl<MutexType, T> Drop for GenericOneshotBroadcastSender<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn drop(&mut self) {
                 // Close the channel, before last sender gets destroyed
                 // TODO: We could potentially avoid this, if no receiver is left
@@ -323,7 +366,10 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Drop for GenericOneshotBroadcastReceiver<MutexType, T>
-        where MutexType: RawMutex, T: Clone {
+        where
+            MutexType: RawMutex,
+            T: Clone,
+        {
             fn drop(&mut self) {
                 // TODO: This is broken, since it will already close the channel if only one receiver is closed.
                 // We need to count receivers, as in mpmc queue.
@@ -347,26 +393,31 @@ mod if_alloc {
         /// # use futures_intrusive::channel::shared::oneshot_broadcast_channel;
         /// let (sender, receiver) = oneshot_broadcast_channel::<i32>();
         /// ```
-        pub fn generic_oneshot_broadcast_channel<MutexType, T>() ->
-            (GenericOneshotBroadcastSender<MutexType, T>, GenericOneshotBroadcastReceiver<MutexType, T>)
-        where MutexType: RawMutex, T: Send + Clone {
-            let inner = std::sync::Arc::new(
-                GenericOneshotChannelSharedState {
-                    channel: GenericOneshotBroadcastChannel::new(),
-                });
+        pub fn generic_oneshot_broadcast_channel<MutexType, T>() -> (
+            GenericOneshotBroadcastSender<MutexType, T>,
+            GenericOneshotBroadcastReceiver<MutexType, T>,
+        )
+        where
+            MutexType: RawMutex,
+            T: Send + Clone,
+        {
+            let inner = std::sync::Arc::new(GenericOneshotChannelSharedState {
+                channel: GenericOneshotBroadcastChannel::new(),
+            });
 
             let sender = GenericOneshotBroadcastSender {
                 inner: inner.clone(),
             };
-            let receiver = GenericOneshotBroadcastReceiver {
-                inner,
-            };
+            let receiver = GenericOneshotBroadcastReceiver { inner };
 
             (sender, receiver)
         }
 
         impl<MutexType, T> GenericOneshotBroadcastSender<MutexType, T>
-        where MutexType: RawMutex + 'static, T: Clone {
+        where
+            MutexType: RawMutex + 'static,
+            T: Clone,
+        {
             /// Writes a single value to the channel.
             ///
             /// This will notify waiters about the availability of the value.
@@ -379,7 +430,10 @@ mod if_alloc {
         }
 
         impl<MutexType, T> GenericOneshotBroadcastReceiver<MutexType, T>
-        where MutexType: RawMutex + 'static, T: Clone {
+        where
+            MutexType: RawMutex + 'static,
+            T: Clone,
+        {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
             pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
@@ -397,15 +451,20 @@ mod if_alloc {
             use super::*;
 
             /// A [`GenericOneshotBroadcastSender`] implementation backed by [`parking_lot`].
-            pub type OneshotBroadcastSender<T> = GenericOneshotBroadcastSender<parking_lot::RawMutex, T>;
+            pub type OneshotBroadcastSender<T> =
+                GenericOneshotBroadcastSender<parking_lot::RawMutex, T>;
             /// A [`GenericOneshotBroadcastReceiver`] implementation backed by [`parking_lot`].
-            pub type OneshotBroadcastReceiver<T> = GenericOneshotBroadcastReceiver<parking_lot::RawMutex, T>;
+            pub type OneshotBroadcastReceiver<T> =
+                GenericOneshotBroadcastReceiver<parking_lot::RawMutex, T>;
 
             /// Creates a new oneshot broadcast channel.
             ///
             /// Refer to [`generic_oneshot_broadcast_channel`] for details.
-            pub fn oneshot_broadcast_channel<T>() -> (OneshotBroadcastSender<T>, OneshotBroadcastReceiver<T>)
-            where T: Send + Clone {
+            pub fn oneshot_broadcast_channel<T>(
+            ) -> (OneshotBroadcastSender<T>, OneshotBroadcastReceiver<T>)
+            where
+                T: Send + Clone,
+            {
                 generic_oneshot_broadcast_channel::<parking_lot::RawMutex, T>()
             }
         }

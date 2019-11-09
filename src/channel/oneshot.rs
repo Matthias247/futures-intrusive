@@ -1,14 +1,15 @@
 //! An asynchronously awaitable oneshot channel
 
-use core::marker::PhantomData;
-use futures_core::task::{Context, Poll};
-use lock_api::{RawMutex, Mutex};
-use crate::NoopLock;
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
 use super::ChannelSendError;
 use super::{
-    RecvPollState, RecvWaitQueueEntry,
-    ChannelReceiveFuture, ChannelReceiveAccess};
+    ChannelReceiveAccess, ChannelReceiveFuture, RecvPollState,
+    RecvWaitQueueEntry,
+};
+use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::marker::PhantomData;
+use futures_core::task::{Context, Poll};
+use lock_api::{Mutex, RawMutex};
 
 unsafe fn wake_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
     // Reverse the waiter list, so that the oldest waker (which is
@@ -98,31 +99,30 @@ impl<T> ChannelState<T> {
                     Some(v) => {
                         // A value was available inside the channel and was fetched
                         Poll::Ready(Some(v))
-                    },
+                    }
                     None => {
                         // Check if something was written into the channel before
                         // or the channel was closed.
                         if self.is_fulfilled {
                             Poll::Ready(None)
-                        }
-                        else {
+                        } else {
                             // Added the task to the wait queue
                             wait_node.task = Some(cx.waker().clone());
                             wait_node.state = RecvPollState::Registered;
                             self.waiters.add_front(wait_node);
                             Poll::Pending
                         }
-                    },
+                    }
                 }
-            },
+            }
             RecvPollState::Registered => {
                 // Since the channel wakes up all waiters and moves their states to unregistered
                 // there can't be any value in the channel in this state.
                 Poll::Pending
-            },
+            }
             RecvPollState::Notified => {
                 unreachable!("Not possible for Oneshot");
-            },
+            }
         }
     }
 
@@ -130,7 +130,7 @@ impl<T> ChannelState<T> {
         // ChannelReceiveFuture only needs to get removed if it had been added to
         // the wait queue of the channel. This has happened in the RecvPollState::Waiting case.
         if let RecvPollState::Registered = wait_node.state {
-            if ! unsafe { self.waiters.remove(wait_node) } {
+            if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the RecvWaitQueueEntry got moved after the initial poll.
                 panic!("Future could not be removed from wait queue");
@@ -155,14 +155,21 @@ pub struct GenericOneshotChannel<MutexType: RawMutex, T> {
 
 // The channel can be sent to other threads as long as it's not borrowed and the
 // value in it can be sent to other threads.
-unsafe impl<MutexType: RawMutex + Send, T: Send> Send for GenericOneshotChannel<MutexType, T> {}
+unsafe impl<MutexType: RawMutex + Send, T: Send> Send
+    for GenericOneshotChannel<MutexType, T>
+{
+}
 // The channel is thread-safe as long as a thread-safe mutex is used
-unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync for GenericOneshotChannel<MutexType, T> {}
+unsafe impl<MutexType: RawMutex + Sync, T: Send> Sync
+    for GenericOneshotChannel<MutexType, T>
+{
+}
 
-impl<MutexType: RawMutex, T> core::fmt::Debug for GenericOneshotChannel<MutexType, T> {
+impl<MutexType: RawMutex, T> core::fmt::Debug
+    for GenericOneshotChannel<MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericOneshotChannel")
-            .finish()
+        f.debug_struct("GenericOneshotChannel").finish()
     }
 }
 
@@ -205,7 +212,9 @@ impl<MutexType: RawMutex, T> GenericOneshotChannel<MutexType, T> {
     }
 }
 
-impl<MutexType: RawMutex, T> ChannelReceiveAccess<T> for GenericOneshotChannel<MutexType, T> {
+impl<MutexType: RawMutex, T> ChannelReceiveAccess<T>
+    for GenericOneshotChannel<MutexType, T>
+{
     unsafe fn try_receive(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
@@ -214,7 +223,10 @@ impl<MutexType: RawMutex, T> ChannelReceiveAccess<T> for GenericOneshotChannel<M
         self.inner.lock().try_receive(wait_node, cx)
     }
 
-    fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>) {
+    fn remove_receive_waiter(
+        &self,
+        wait_node: &mut ListNode<RecvWaitQueueEntry>,
+    ) {
         self.inner.lock().remove_waiter(wait_node)
     }
 }
@@ -231,7 +243,8 @@ mod if_std {
     // Export a thread-safe version using parking_lot::RawMutex
 
     /// A [`GenericOneshotChannel`] implementation backed by [`parking_lot`].
-    pub type OneshotChannel<T> = GenericOneshotChannel<parking_lot::RawMutex, T>;
+    pub type OneshotChannel<T> =
+        GenericOneshotChannel<parking_lot::RawMutex, T>;
 }
 
 #[cfg(feature = "std")]
@@ -249,26 +262,32 @@ mod if_alloc {
         use crate::channel::shared::ChannelReceiveFuture;
 
         struct GenericOneshotChannelSharedState<MutexType, T>
-        where MutexType: RawMutex, T: 'static {
+        where
+            MutexType: RawMutex,
+            T: 'static,
+        {
             channel: GenericOneshotChannel<MutexType, T>,
         }
 
         // Implement ChannelReceiveAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl <MutexType, T> ChannelReceiveAccess<T> for GenericOneshotChannelSharedState<MutexType, T>
-        where MutexType: RawMutex
+        impl<MutexType, T> ChannelReceiveAccess<T>
+            for GenericOneshotChannelSharedState<MutexType, T>
+        where
+            MutexType: RawMutex,
         {
             unsafe fn try_receive(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
-            ) -> Poll<Option<T>>
-            {
+            ) -> Poll<Option<T>> {
                 self.channel.try_receive(wait_node, cx)
             }
 
-            fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>)
-            {
+            fn remove_receive_waiter(
+                &self,
+                wait_node: &mut ListNode<RecvWaitQueueEntry>,
+            ) {
                 self.channel.remove_receive_waiter(wait_node)
             }
         }
@@ -278,8 +297,12 @@ mod if_alloc {
         ///
         /// Values can be sent into the channel through `send`.
         pub struct GenericOneshotSender<MutexType, T>
-        where MutexType: RawMutex, T: 'static {
-            inner: std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
+        where
+            MutexType: RawMutex,
+            T: 'static,
+        {
+            inner:
+                std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -288,28 +311,36 @@ mod if_alloc {
         /// Tasks can receive values from the channel through the `receive` method.
         /// The returned Future will get resolved when a value is sent into the channel.
         pub struct GenericOneshotReceiver<MutexType, T>
-        where MutexType: RawMutex, T: 'static {
-            inner: std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
+        where
+            MutexType: RawMutex,
+            T: 'static,
+        {
+            inner:
+                std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
         }
 
         impl<MutexType, T> core::fmt::Debug for GenericOneshotSender<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("OneshotSender")
-                    .finish()
+                f.debug_struct("OneshotSender").finish()
             }
         }
 
         impl<MutexType, T> core::fmt::Debug for GenericOneshotReceiver<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("OneshotReceiver")
-                    .finish()
+                f.debug_struct("OneshotReceiver").finish()
             }
         }
 
         impl<MutexType, T> Drop for GenericOneshotSender<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn drop(&mut self) {
                 // Close the channel, before last sender gets destroyed
                 // TODO: We could potentially avoid this, if no receiver is left
@@ -318,7 +349,9 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Drop for GenericOneshotReceiver<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn drop(&mut self) {
                 // Close the channel, before last receiver gets destroyed
                 // TODO: We could potentially avoid this, if no sender is left
@@ -340,26 +373,30 @@ mod if_alloc {
         /// # use futures_intrusive::channel::shared::oneshot_channel;
         /// let (sender, receiver) = oneshot_channel::<i32>();
         /// ```
-        pub fn generic_oneshot_channel<MutexType, T>() ->
-            (GenericOneshotSender<MutexType, T>, GenericOneshotReceiver<MutexType, T>)
-        where MutexType: RawMutex, T: Send {
-            let inner = std::sync::Arc::new(
-                GenericOneshotChannelSharedState {
-                    channel: GenericOneshotChannel::new(),
-                });
+        pub fn generic_oneshot_channel<MutexType, T>() -> (
+            GenericOneshotSender<MutexType, T>,
+            GenericOneshotReceiver<MutexType, T>,
+        )
+        where
+            MutexType: RawMutex,
+            T: Send,
+        {
+            let inner = std::sync::Arc::new(GenericOneshotChannelSharedState {
+                channel: GenericOneshotChannel::new(),
+            });
 
             let sender = GenericOneshotSender {
                 inner: inner.clone(),
             };
-            let receiver = GenericOneshotReceiver {
-                inner,
-            };
+            let receiver = GenericOneshotReceiver { inner };
 
             (sender, receiver)
         }
 
         impl<MutexType, T> GenericOneshotSender<MutexType, T>
-        where MutexType: RawMutex + 'static {
+        where
+            MutexType: RawMutex + 'static,
+        {
             /// Writes a single value to the channel.
             ///
             /// This will notify waiters about the availability of the value.
@@ -372,7 +409,9 @@ mod if_alloc {
         }
 
         impl<MutexType, T> GenericOneshotReceiver<MutexType, T>
-        where MutexType: RawMutex + 'static {
+        where
+            MutexType: RawMutex + 'static,
+        {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
             pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
@@ -390,15 +429,19 @@ mod if_alloc {
             use super::*;
 
             /// A [`GenericOneshotSender`] implementation backed by [`parking_lot`].
-            pub type OneshotSender<T> = GenericOneshotSender<parking_lot::RawMutex, T>;
+            pub type OneshotSender<T> =
+                GenericOneshotSender<parking_lot::RawMutex, T>;
             /// A [`GenericOneshotReceiver`] implementation backed by [`parking_lot`].
-            pub type OneshotReceiver<T> = GenericOneshotReceiver<parking_lot::RawMutex, T>;
+            pub type OneshotReceiver<T> =
+                GenericOneshotReceiver<parking_lot::RawMutex, T>;
 
             /// Creates a new oneshot channel.
             ///
             /// Refer to [`generic_oneshot_channel`] for details.
             pub fn oneshot_channel<T>() -> (OneshotSender<T>, OneshotReceiver<T>)
-            where T: Send {
+            where
+                T: Send,
+            {
                 generic_oneshot_channel::<parking_lot::RawMutex, T>()
             }
         }

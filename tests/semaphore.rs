@@ -1,4 +1,4 @@
-use futures::future::{Future, FusedFuture};
+use futures::future::{FusedFuture, Future};
 use futures::task::{Context, Poll};
 use futures_intrusive::sync::LocalSemaphore;
 use futures_test::task::{new_count_waker, panic_waker};
@@ -546,14 +546,11 @@ mod if_std {
 
     gen_semaphore_tests!(semaphore_tests, Semaphore);
 
-    fn is_send<T: Send>(_: &T) {
-    }
+    fn is_send<T: Send>(_: &T) {}
 
-    fn is_send_value<T: Send>(_: T) {
-    }
+    fn is_send_value<T: Send>(_: T) {}
 
-    fn is_sync<T: Sync>(_: &T) {
-    }
+    fn is_sync<T: Sync>(_: &T) {}
 
     #[test]
     fn semaphore_futures_are_send() {

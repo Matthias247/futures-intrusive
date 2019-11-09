@@ -1,11 +1,11 @@
 //! An asynchronously awaitable event for signalization between tasks
 
-use futures_core::future::{Future, FusedFuture};
-use futures_core::task::{Context, Poll, Waker};
-use core::pin::Pin;
-use lock_api::{RawMutex, Mutex};
-use crate::NoopLock;
 use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::pin::Pin;
+use futures_core::future::{FusedFuture, Future};
+use futures_core::task::{Context, Poll, Waker};
+use lock_api::{Mutex, RawMutex};
 
 /// Tracks how the future had interacted with the event
 #[derive(PartialEq)]
@@ -104,27 +104,26 @@ impl EventState {
                     // The event is already signaled
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // Added the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-            },
+            }
             PollState::Waiting => {
                 // The WaitForEventFuture is already in the queue.
                 // The event can't have been set, since this would change the
                 // waitstate inside the mutex.
                 Poll::Pending
-            },
+            }
             PollState::Done => {
                 // We have been woken up by the event.
                 // This does not guarantee that the event is still set. It could
                 // have been reset it in the meantime.
                 Poll::Ready(())
-            },
+            }
         }
     }
 
@@ -132,7 +131,7 @@ impl EventState {
         // WaitForEventFuture only needs to get removed if it has been added to
         // the wait queue of the Event. This has happened in the PollState::Waiting case.
         if let PollState::Waiting = wait_node.state {
-            if ! unsafe { self.waiters.remove(wait_node) } {
+            if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the WaitQueueEntry got moved after the initial poll.
                 panic!("Future could not be removed from wait queue");
@@ -151,14 +150,21 @@ pub struct GenericManualResetEvent<MutexType: RawMutex> {
 }
 
 // The Event is can be sent to other threads as long as it's not borrowed
-unsafe impl<MutexType: RawMutex + Send> Send for GenericManualResetEvent<MutexType> {}
+unsafe impl<MutexType: RawMutex + Send> Send
+    for GenericManualResetEvent<MutexType>
+{
+}
 // The Event is thread-safe as long as the utilized Mutex is thread-safe
-unsafe impl<MutexType: RawMutex + Sync> Sync for GenericManualResetEvent<MutexType> {}
+unsafe impl<MutexType: RawMutex + Sync> Sync
+    for GenericManualResetEvent<MutexType>
+{
+}
 
-impl<MutexType: RawMutex> core::fmt::Debug for GenericManualResetEvent<MutexType> {
+impl<MutexType: RawMutex> core::fmt::Debug
+    for GenericManualResetEvent<MutexType>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("ManualResetEvent")
-            .finish()
+        f.debug_struct("ManualResetEvent").finish()
     }
 }
 
@@ -220,37 +226,39 @@ pub struct GenericWaitForEventFuture<'a, MutexType: RawMutex> {
 // Safety: Futures can be sent between threads as long as the underlying
 // event is thread-safe (Sync), which allows to poll/register/unregister from
 // a different thread.
-unsafe impl<'a, MutexType: RawMutex + Sync> Send for GenericWaitForEventFuture<'a, MutexType> {}
+unsafe impl<'a, MutexType: RawMutex + Sync> Send
+    for GenericWaitForEventFuture<'a, MutexType>
+{
+}
 
-impl<'a, MutexType: RawMutex> core::fmt::Debug for GenericWaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> core::fmt::Debug
+    for GenericWaitForEventFuture<'a, MutexType>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericWaitForEventFuture")
-            .finish()
+        f.debug_struct("GenericWaitForEventFuture").finish()
     }
 }
 
-impl<'a, MutexType: RawMutex> Future for GenericWaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> Future
+    for GenericWaitForEventFuture<'a, MutexType>
+{
     type Output = ();
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<()> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         // It might be possible to use Pin::map_unchecked here instead of the two unsafe APIs.
         // However this didn't seem to work for some borrow checker reasons
 
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside MutexLocalFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut GenericWaitForEventFuture<MutexType> = unsafe {
-            Pin::get_unchecked_mut(self)
-        };
+        let mut_self: &mut GenericWaitForEventFuture<MutexType> =
+            unsafe { Pin::get_unchecked_mut(self) };
 
-        let event = mut_self.event.expect("polled WaitForEventFuture after completion");
+        let event = mut_self
+            .event
+            .expect("polled WaitForEventFuture after completion");
 
-        let poll_res = unsafe {
-            event.try_wait(&mut mut_self.wait_node, cx)
-        };
+        let poll_res = unsafe { event.try_wait(&mut mut_self.wait_node, cx) };
 
         if let Poll::Ready(()) = poll_res {
             // The event was set
@@ -261,13 +269,17 @@ impl<'a, MutexType: RawMutex> Future for GenericWaitForEventFuture<'a, MutexType
     }
 }
 
-impl<'a, MutexType: RawMutex> FusedFuture for GenericWaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> FusedFuture
+    for GenericWaitForEventFuture<'a, MutexType>
+{
     fn is_terminated(&self) -> bool {
         self.event.is_none()
     }
 }
 
-impl<'a, MutexType: RawMutex> Drop for GenericWaitForEventFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> Drop
+    for GenericWaitForEventFuture<'a, MutexType>
+{
     fn drop(&mut self) {
         // If this WaitForEventFuture has been polled and it was added to the
         // wait queue at the event, it must be removed before dropping.
@@ -294,7 +306,8 @@ mod if_std {
     /// A [`GenericManualResetEvent`] implementation backehttp://nico.ms/sm31485778d by [`parking_lot`].
     pub type ManualResetEvent = GenericManualResetEvent<parking_lot::RawMutex>;
     /// A [`GenericWaitForEventFuture`] for [`ManualResetEvent`].
-    pub type WaitForEventFuture<'a> = GenericWaitForEventFuture<'a, parking_lot::RawMutex>;
+    pub type WaitForEventFuture<'a> =
+        GenericWaitForEventFuture<'a, parking_lot::RawMutex>;
 }
 
 #[cfg(feature = "std")]

@@ -1,10 +1,9 @@
-use futures::future::{Future, FusedFuture};
+use core::time::Duration;
+use futures::future::{FusedFuture, Future};
 use futures::task::Context;
-use futures_intrusive::timer::{
-    MockClock, LocalTimerService};
+use futures_intrusive::timer::{LocalTimerService, MockClock};
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
-use core::time::Duration;
 
 macro_rules! gen_timer_tests {
     ($mod_name:ident, $timer_type:ident, $timer_trait_type:ident) => {
@@ -201,7 +200,7 @@ macro_rules! gen_timer_tests {
                 assert_eq!(count, 4);
             }
         }
-    }
+    };
 }
 
 gen_timer_tests!(local_timer_service_tests, LocalTimerService, LocalTimer);
@@ -209,18 +208,15 @@ gen_timer_tests!(local_timer_service_tests, LocalTimerService, LocalTimer);
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use futures_intrusive::timer::{TimerService, Timer};
+    use futures_intrusive::timer::{Timer, TimerService};
 
     gen_timer_tests!(timer_service_tests, TimerService, Timer);
 
-    fn is_send<T: Send>(_: &T) {
-    }
+    fn is_send<T: Send>(_: &T) {}
 
-    fn is_send_value<T: Send>(_: T) {
-    }
+    fn is_send_value<T: Send>(_: T) {}
 
-    fn is_sync<T: Sync>(_: &T) {
-    }
+    fn is_sync<T: Sync>(_: &T) {}
 
     #[test]
     fn timer_futures_are_send() {

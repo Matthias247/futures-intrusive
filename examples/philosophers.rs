@@ -3,21 +3,18 @@
 //! which uses async tasks and futures_intrusive primitives in order to
 //! simulate philosophers.
 
-#![recursion_limit="256"]
+#![recursion_limit = "256"]
 
+use futures::{executor::block_on, join, select};
 use futures_intrusive::{
-    sync::{LocalMutex},
+    sync::LocalMutex,
     timer::{StdClock, Timer, TimerService},
 };
-use futures::{
-    join, select,
-    executor::block_on,
-};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{spawn, sleep};
-use std::time::Duration;
-use pin_utils::pin_mut;
 use lazy_static::lazy_static;
+use pin_utils::pin_mut;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{sleep, spawn};
+use std::time::Duration;
 
 /// We simulate the ownership of a fork through an asynchronously awaitable mutex.
 /// In order to acquire a fork, the philosopher acquires the Mutex.
@@ -49,14 +46,21 @@ fn rand_delay(min: Duration, max_extra: Duration) -> Duration {
 const TO_EAT: usize = 5;
 
 /// Simulates a single philosopher
-async fn philosopher_task<'a>(name: &'a str, left_fork: &'a Fork, right_fork: &'a Fork) {
+async fn philosopher_task<'a>(
+    name: &'a str,
+    left_fork: &'a Fork,
+    right_fork: &'a Fork,
+) {
     println!("{} is ready to go", name);
     let mut eaten: usize = 0;
 
     while eaten != TO_EAT {
         println!("{} is thinking", name);
         get_timer()
-            .delay(rand_delay(Duration::from_millis(1000), Duration::from_millis(1000)))
+            .delay(rand_delay(
+                Duration::from_millis(1000),
+                Duration::from_millis(1000),
+            ))
             .await;
         {
             println!("{} is starting to pick up forks", name);
@@ -69,7 +73,8 @@ async fn philosopher_task<'a>(name: &'a str, left_fork: &'a Fork, right_fork: &'
             // This sets up a timer. If the philosopher can't obtain both forks
             // during that, they put back all acquired forks and start thinking
             // again.
-            let abort_get_forks_future = get_timer().delay(Duration::from_millis(300));
+            let abort_get_forks_future =
+                get_timer().delay(Duration::from_millis(300));
             pin_mut!(abort_get_forks_future);
 
             select! {
@@ -124,7 +129,8 @@ async fn simulate_philosophers() {
         Fork::new((), true),
         Fork::new((), true),
         Fork::new((), true),
-        Fork::new((), true)];
+        Fork::new((), true),
+    ];
 
     // Create a task for each philosopher
     let p1 = philosopher_task("A", &forks[4], &forks[0]);
@@ -139,7 +145,9 @@ async fn simulate_philosophers() {
 
 fn main() {
     // Spawn a background thread which advances the timer
-    let join_handle = spawn(move || { timer_thread(); });
+    let join_handle = spawn(move || {
+        timer_thread();
+    });
 
     // And simulate the philosophers
     block_on(simulate_philosophers());

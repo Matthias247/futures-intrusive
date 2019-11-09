@@ -1,14 +1,14 @@
 //! An asynchronously awaitable mutex for synchronization between concurrently
 //! executing futures.
 
-use futures_core::future::{Future, FusedFuture};
-use futures_core::task::{Context, Poll, Waker};
+use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
-use lock_api::{RawMutex, Mutex as LockApiMutex};
-use crate::NoopLock;
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use futures_core::future::{FusedFuture, Future};
+use futures_core::task::{Context, Poll, Waker};
+use lock_api::{Mutex as LockApiMutex, RawMutex};
 
 /// Tracks how the future had interacted with the mutex
 #[derive(PartialEq)]
@@ -61,12 +61,11 @@ impl MutexState {
 
     /// Wakes up the last waiter and removes it from the wait queue
     fn wakeup_last_waiter(&mut self) {
-        let last_waiter =
-            if self.is_fair {
-                self.waiters.peek_last()
-            } else {
-                self.waiters.remove_last()
-            };
+        let last_waiter = if self.is_fair {
+            self.waiters.peek_last()
+        } else {
+            self.waiters.remove_last()
+        };
 
         if !last_waiter.is_null() {
             // Notify the waiter that it can try to lock the mutex again.
@@ -110,8 +109,7 @@ impl MutexState {
         if !self.is_locked && (!self.is_fair || self.waiters.is_empty()) {
             self.is_locked = true;
             true
-        }
-        else {
+        } else {
             false
         }
     }
@@ -134,23 +132,21 @@ impl MutexState {
                 if self.try_lock_sync() {
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-            },
+            }
             PollState::Waiting => {
                 // The MutexLockFuture is already in the queue.
                 if self.is_fair {
                     // The task needs to wait until it gets notified in order to
                     // maintain the ordering.
                     Poll::Pending
-                }
-                else {
+                } else {
                     // For throughput improvement purposes, grab the lock immediately
                     // if it's available.
                     if !self.is_locked {
@@ -160,12 +156,11 @@ impl MutexState {
                         // get removed from the waiter list.
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
-                    }
-                    else {
+                    } else {
                         Poll::Pending
                     }
                 }
-            },
+            }
             PollState::Notified => {
                 // We had been woken by the mutex, since the mutex is available again.
                 // The mutex thereby removed us from the waiters list.
@@ -180,26 +175,27 @@ impl MutexState {
                     self.is_locked = true;
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-
-            },
+            }
             PollState::Done => {
                 // The future had been polled to completion before
                 panic!("polled Mutex after completion");
-            },
+            }
         }
     }
 
     /// Tries to remove a waiter from the wait queue, and panics if the
     /// waiter is no longer valid.
-    unsafe fn force_remove_waiter(&mut self, wait_node: *mut ListNode<WaitQueueEntry>) {
+    unsafe fn force_remove_waiter(
+        &mut self,
+        wait_node: *mut ListNode<WaitQueueEntry>,
+    ) {
         if !self.waiters.remove(wait_node) {
             // Panic if the address isn't found. This can only happen if the contract was
             // violated, e.g. the WaitQueueEntry got moved after the initial poll.
@@ -224,13 +220,13 @@ impl MutexState {
                 }
                 wait_node.state = PollState::Done;
                 self.wakeup_last_waiter();
-            },
+            }
             PollState::Waiting => {
                 // Remove the WaitQueueEntry from the linked list
                 unsafe { self.force_remove_waiter(wait_node) };
                 wait_node.state = PollState::Done;
-            },
-            PollState::New | PollState::Done => {},
+            }
+            PollState::New | PollState::Done => {}
         }
     }
 }
@@ -244,10 +240,10 @@ pub struct GenericMutexGuard<'a, MutexType: RawMutex, T: 'a> {
 }
 
 impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
-for GenericMutexGuard<'_, MutexType, T> {
+    for GenericMutexGuard<'_, MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericMutexGuard")
-            .finish()
+        f.debug_struct("GenericMutexGuard").finish()
     }
 }
 
@@ -283,59 +279,61 @@ pub struct GenericMutexLockFuture<'a, MutexType: RawMutex, T: 'a> {
 // Safety: Futures can be sent between threads as long as the underlying
 // mutex is thread-safe (Sync), which allows to poll/register/unregister from
 // a different thread.
-unsafe impl<'a, MutexType: RawMutex + Sync, T: 'a> Send for GenericMutexLockFuture<'a, MutexType, T> {}
+unsafe impl<'a, MutexType: RawMutex + Sync, T: 'a> Send
+    for GenericMutexLockFuture<'a, MutexType, T>
+{
+}
 
 impl<'a, MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
-for GenericMutexLockFuture<'a, MutexType, T> {
+    for GenericMutexLockFuture<'a, MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericMutexLockFuture")
-            .finish()
+        f.debug_struct("GenericMutexLockFuture").finish()
     }
 }
 
-impl<'a, MutexType: RawMutex, T> Future for GenericMutexLockFuture<'a, MutexType, T> {
+impl<'a, MutexType: RawMutex, T> Future
+    for GenericMutexLockFuture<'a, MutexType, T>
+{
     type Output = GenericMutexGuard<'a, MutexType, T>;
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside GenericMutexLockFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut GenericMutexLockFuture<MutexType, T> = unsafe {
-            Pin::get_unchecked_mut(self)
-        };
+        let mut_self: &mut GenericMutexLockFuture<MutexType, T> =
+            unsafe { Pin::get_unchecked_mut(self) };
 
-        let mutex = mut_self.mutex.expect("polled GenericMutexLockFuture after completion");
+        let mutex = mut_self
+            .mutex
+            .expect("polled GenericMutexLockFuture after completion");
         let mut mutex_state = mutex.state.lock();
 
-        let poll_res = unsafe {
-            mutex_state.try_lock(
-            &mut mut_self.wait_node,
-            cx)
-        };
+        let poll_res =
+            unsafe { mutex_state.try_lock(&mut mut_self.wait_node, cx) };
 
         match poll_res {
             Poll::Pending => Poll::Pending,
             Poll::Ready(()) => {
                 // The mutex was acquired
                 mut_self.mutex = None;
-                Poll::Ready(GenericMutexGuard::<'a, MutexType, T>{
-                    mutex,
-                })
-            },
+                Poll::Ready(GenericMutexGuard::<'a, MutexType, T> { mutex })
+            }
         }
     }
 }
 
-impl<'a, MutexType: RawMutex, T> FusedFuture for GenericMutexLockFuture<'a, MutexType, T> {
-   fn is_terminated(&self) -> bool {
-       self.mutex.is_none()
-   }
+impl<'a, MutexType: RawMutex, T> FusedFuture
+    for GenericMutexLockFuture<'a, MutexType, T>
+{
+    fn is_terminated(&self) -> bool {
+        self.mutex.is_none()
+    }
 }
 
-impl<'a, MutexType: RawMutex, T> Drop for GenericMutexLockFuture<'a, MutexType, T> {
+impl<'a, MutexType: RawMutex, T> Drop
+    for GenericMutexLockFuture<'a, MutexType, T>
+{
     fn drop(&mut self) {
         // If this GenericMutexLockFuture has been polled and it was added to the
         // wait queue at the mutex, it must be removed before dropping.
@@ -355,11 +353,19 @@ pub struct GenericMutex<MutexType: RawMutex, T> {
 
 // It is safe to send mutexes between threads, as long as they are not used and
 // thereby borrowed
-unsafe impl<T: Send, MutexType: RawMutex + Send> Send for GenericMutex<MutexType, T> {}
+unsafe impl<T: Send, MutexType: RawMutex + Send> Send
+    for GenericMutex<MutexType, T>
+{
+}
 // The mutex is thread-safe as long as the utilized mutex is thread-safe
-unsafe impl<T: Send, MutexType: RawMutex + Sync> Sync for GenericMutex<MutexType, T> {}
+unsafe impl<T: Send, MutexType: RawMutex + Sync> Sync
+    for GenericMutex<MutexType, T>
+{
+}
 
-impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug for GenericMutex<MutexType, T> {
+impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
+    for GenericMutex<MutexType, T>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("Mutex")
             .field("is_locked", &self.is_locked())
@@ -402,11 +408,8 @@ impl<MutexType: RawMutex, T> GenericMutex<MutexType, T> {
     /// Otherwise `None` will be returned.
     pub fn try_lock(&self) -> Option<GenericMutexGuard<'_, MutexType, T>> {
         if self.state.lock().try_lock_sync() {
-            Some(GenericMutexGuard{
-                mutex: self,
-            })
-        }
-        else {
+            Some(GenericMutexGuard { mutex: self })
+        } else {
             None
         }
     }
@@ -435,9 +438,11 @@ mod if_std {
     /// A [`GenericMutex`] backed by [`parking_lot`].
     pub type Mutex<T> = GenericMutex<parking_lot::RawMutex, T>;
     /// A [`GenericMutexGuard`] for [`Mutex`].
-    pub type MutexGuard<'a, T> = GenericMutexGuard<'a, parking_lot::RawMutex, T>;
+    pub type MutexGuard<'a, T> =
+        GenericMutexGuard<'a, parking_lot::RawMutex, T>;
     /// A [`GenericMutexLockFuture`] for [`Mutex`].
-    pub type MutexLockFuture<'a, T> = GenericMutexLockFuture<'a, parking_lot::RawMutex, T>;
+    pub type MutexLockFuture<'a, T> =
+        GenericMutexLockFuture<'a, parking_lot::RawMutex, T>;
 }
 
 #[cfg(feature = "std")]

@@ -1,6 +1,6 @@
-use futures::future::{Future, FusedFuture};
+use futures::future::{FusedFuture, Future};
 use futures::task::{Context, Poll};
-use futures_intrusive::channel::{LocalOneshotChannel, ChannelSendError};
+use futures_intrusive::channel::{ChannelSendError, LocalOneshotChannel};
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 
@@ -12,9 +12,10 @@ macro_rules! gen_oneshot_tests {
             fn assert_receive_done<FutureType, T>(
                 cx: &mut Context,
                 receive_fut: &mut core::pin::Pin<&mut FutureType>,
-                value: Option<T>)
-            where FutureType: Future<Output=Option<T>> + FusedFuture,
-                T: PartialEq + core::fmt::Debug
+                value: Option<T>,
+            ) where
+                FutureType: Future<Output = Option<T>> + FusedFuture,
+                T: PartialEq + core::fmt::Debug,
             {
                 match receive_fut.as_mut().poll(cx) {
                     Poll::Pending => panic!("future is not ready"),
@@ -121,7 +122,7 @@ macro_rules! gen_oneshot_tests {
                 // Second send
                 let send_res = channel.send(7);
                 match send_res {
-                    Err(ChannelSendError(7)) => {}, // expected
+                    Err(ChannelSendError(7)) => {} // expected
                     _ => panic!("Second second should reject"),
                 }
             }
@@ -218,7 +219,7 @@ macro_rules! gen_oneshot_tests {
                 assert_eq!(count, 4)
             }
         }
-    }
+    };
 }
 
 gen_oneshot_tests!(local_oneshot_channel_tests, LocalOneshotChannel);
@@ -226,20 +227,16 @@ gen_oneshot_tests!(local_oneshot_channel_tests, LocalOneshotChannel);
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
+    use futures_intrusive::channel::shared::oneshot_channel;
     use futures_intrusive::channel::OneshotChannel;
-    use futures_intrusive::channel::shared::{
-        oneshot_channel};
 
     gen_oneshot_tests!(oneshot_channel_tests, OneshotChannel);
 
-    fn is_send<T: Send>(_: &T) {
-    }
+    fn is_send<T: Send>(_: &T) {}
 
-    fn is_send_value<T: Send>(_: T) {
-    }
+    fn is_send_value<T: Send>(_: T) {}
 
-    fn is_sync<T: Sync>(_: &T) {
-    }
+    fn is_sync<T: Sync>(_: &T) {}
 
     #[test]
     fn channel_futures_are_send() {
@@ -290,7 +287,7 @@ mod if_std {
         drop(sender);
 
         match fut.as_mut().poll(cx) {
-            Poll::Ready(None) => {},
+            Poll::Ready(None) => {}
             Poll::Ready(Some(_)) => panic!("Expected no value"),
             Poll::Pending => panic!("Expected channel to be closed"),
         }

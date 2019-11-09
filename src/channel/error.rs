@@ -1,4 +1,3 @@
-
 /// The error which is returned when sending a value into a channel fails.
 ///
 /// The `send` operation can only fail if the channel has been closed, which

@@ -213,7 +213,6 @@
 //!
 
 #![cfg_attr(not(feature = "std"), no_std)]
-
 #![warn(missing_docs, missing_debug_implementations)]
 #![deny(bare_trait_objects)]
 
@@ -222,10 +221,10 @@ use noop_lock::NoopLock;
 
 pub mod buffer;
 
-mod intrusive_singly_linked_list;
 #[allow(dead_code)]
 mod intrusive_double_linked_list;
+mod intrusive_singly_linked_list;
 
-pub mod sync;
 pub mod channel;
+pub mod sync;
 pub mod timer;
