@@ -1,6 +1,8 @@
-use futures::future::{Future, FusedFuture};
+use futures::future::{FusedFuture, Future};
 use futures::task::{Context, Poll};
-use futures_intrusive::channel::{StateId, LocalStateBroadcastChannel, ChannelSendError};
+use futures_intrusive::channel::{
+    ChannelSendError, LocalStateBroadcastChannel, StateId,
+};
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 
@@ -18,9 +20,11 @@ macro_rules! gen_state_broadcast_tests {
             fn assert_receive_value<FutureType, T>(
                 cx: &mut Context,
                 receive_fut: &mut core::pin::Pin<&mut FutureType>,
-                expected: T) -> StateId
-            where FutureType: Future<Output=Option<(StateId, T)>> + FusedFuture,
-                T: PartialEq + core::fmt::Debug
+                expected: T,
+            ) -> StateId
+            where
+                FutureType: Future<Output = Option<(StateId, T)>> + FusedFuture,
+                T: PartialEq + core::fmt::Debug,
             {
                 let id = match receive_fut.as_mut().poll(cx) {
                     Poll::Pending => panic!("future is not ready"),
@@ -38,13 +42,14 @@ macro_rules! gen_state_broadcast_tests {
 
             fn assert_receive_closed<FutureType, T>(
                 cx: &mut Context,
-                receive_fut: &mut core::pin::Pin<&mut FutureType>)
-            where FutureType: Future<Output=Option<(StateId, T)>> + FusedFuture,
-                T: PartialEq + core::fmt::Debug
+                receive_fut: &mut core::pin::Pin<&mut FutureType>,
+            ) where
+                FutureType: Future<Output = Option<(StateId, T)>> + FusedFuture,
+                T: PartialEq + core::fmt::Debug,
             {
                 match receive_fut.as_mut().poll(cx) {
                     Poll::Pending => panic!("future is not ready"),
-                    Poll::Ready(None) => {},
+                    Poll::Ready(None) => {}
                     Poll::Ready(Some(_)) => panic!("future has a value"),
                 };
                 assert!(receive_fut.as_mut().is_terminated());
@@ -57,7 +62,7 @@ macro_rules! gen_state_broadcast_tests {
                     assert!(!receive_fut.as_mut().is_terminated());
 
                     assert_receive_value($cx, &mut receive_fut, $expected)
-                }}
+                }};
             }
 
             #[test]
@@ -195,7 +200,7 @@ macro_rules! gen_state_broadcast_tests {
                 let receive_fut = channel.receive(state_id);
                 pin_mut!(receive_fut);
                 let (state_id_21, val) = match receive_fut.as_mut().poll(cx) {
-                    Poll::Ready(Some(res)) => { res },
+                    Poll::Ready(Some(res)) => res,
                     _ => panic!("future is not ready or closed"),
                 };
                 assert_eq!(1, val);
@@ -204,7 +209,7 @@ macro_rules! gen_state_broadcast_tests {
                 let receive_fut_2 = channel.receive(state_id);
                 pin_mut!(receive_fut_2);
                 let (state_id_22, val) = match receive_fut_2.as_mut().poll(cx) {
-                    Poll::Ready(Some(res)) => { res },
+                    Poll::Ready(Some(res)) => res,
                     _ => panic!("future is not ready or closed"),
                 };
                 assert_eq!(1, val);
@@ -300,26 +305,31 @@ macro_rules! gen_state_broadcast_tests {
                 assert_eq!(count, 4);
             }
         }
-    }
+    };
 }
 
-gen_state_broadcast_tests!(local_state_broadcast_channel_tests, LocalStateBroadcastChannel);
+gen_state_broadcast_tests!(
+    local_state_broadcast_channel_tests,
+    LocalStateBroadcastChannel
+);
 
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use futures_intrusive::channel::{StateBroadcastChannel, shared::state_broadcast_channel};
+    use futures_intrusive::channel::{
+        shared::state_broadcast_channel, StateBroadcastChannel,
+    };
 
-    gen_state_broadcast_tests!(state_broadcast_channel_tests, StateBroadcastChannel);
+    gen_state_broadcast_tests!(
+        state_broadcast_channel_tests,
+        StateBroadcastChannel
+    );
 
-    fn is_send<T: Send>(_: &T) {
-    }
+    fn is_send<T: Send>(_: &T) {}
 
-    fn is_send_value<T: Send>(_: T) {
-    }
+    fn is_send_value<T: Send>(_: T) {}
 
-    fn is_sync<T: Sync>(_: &T) {
-    }
+    fn is_sync<T: Sync>(_: &T) {}
 
     #[test]
     fn channel_futures_are_send() {
@@ -380,12 +390,12 @@ mod if_std {
 
         drop(sender2);
         match fut.as_mut().poll(cx) {
-            Poll::Ready(None) => {},
+            Poll::Ready(None) => {}
             Poll::Ready(Some(_)) => panic!("Expected no value"),
             Poll::Pending => panic!("Expected channel to be closed"),
         }
         match fut2.as_mut().poll(cx) {
-            Poll::Ready(None) => {},
+            Poll::Ready(None) => {}
             Poll::Ready(Some(_)) => panic!("Expected no value"),
             Poll::Pending => panic!("Expected channel to be closed"),
         }

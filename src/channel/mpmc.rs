@@ -1,16 +1,18 @@
 //! An asynchronously awaitable multi producer multi consumer channel
 
+use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::{
+    buffer::{ArrayRingBuf, RingBuf},
+    NoopLock,
+};
 use core::marker::PhantomData;
 use futures_core::task::{Context, Poll};
-use lock_api::{RawMutex, Mutex};
-use crate::{NoopLock, buffer::{RingBuf, ArrayRingBuf}};
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use lock_api::{Mutex, RawMutex};
 
 use super::{
-    RecvPollState, RecvWaitQueueEntry,
-    SendPollState, SendWaitQueueEntry,
-    ChannelReceiveAccess, ChannelReceiveFuture,
-    ChannelSendAccess, ChannelSendFuture,
+    ChannelReceiveAccess, ChannelReceiveFuture, ChannelSendAccess,
+    ChannelSendFuture, RecvPollState, RecvWaitQueueEntry, SendPollState,
+    SendWaitQueueEntry,
 };
 
 fn wake_recv_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
@@ -65,7 +67,9 @@ fn wakeup_last_receive_waiter(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
 
 /// Internal state of the channel
 struct ChannelState<T, A>
-where A: RingBuf<Item=T> {
+where
+    A: RingBuf<Item = T>,
+{
     /// Whether the channel had been closed
     is_closed: bool,
     /// The value which is stored inside the channel
@@ -78,7 +82,7 @@ where A: RingBuf<Item=T> {
 
 impl<T, A> ChannelState<T, A>
 where
-    A: RingBuf<Item=T>
+    A: RingBuf<Item = T>,
 {
     fn new(buffer: A) -> ChannelState<T, A> {
         ChannelState::<T, A> {
@@ -130,11 +134,12 @@ where
                     // Wakeup the oldest receive waiter
                     wakeup_last_receive_waiter(&mut self.receive_waiters);
                     return (Poll::Pending, None);
-                }
-                else {
+                } else {
                     // Otherwise copy the value directly into the channel
-                    let value = wait_node.value.take().expect(
-                        "wait_node must contain value");
+                    let value = wait_node
+                        .value
+                        .take()
+                        .expect("wait_node must contain value");
                     self.buffer.push(value);
 
                     // Wakeup the oldest receive waiter
@@ -142,17 +147,17 @@ where
 
                     (Poll::Ready(()), None)
                 }
-            },
+            }
             SendPollState::Registered => {
                 // Since the channel wakes up all waiters and moves their states to unregistered
                 // there can't be space available in the channel.
                 (Poll::Pending, None)
-            },
+            }
             SendPollState::SendComplete => {
                 // The transfer is complete, and the sender has already been removed from the
                 // list of pending senders
                 (Poll::Ready(()), None)
-            },
+            }
         }
     }
 
@@ -162,9 +167,11 @@ where
         let last_waiter = self.send_waiters.remove_last();
 
         if !last_waiter.is_null() {
-            let last_waiter = &mut(*last_waiter);
-            let value = last_waiter.value.take().expect(
-                "wait_node must contain value");
+            let last_waiter = &mut (*last_waiter);
+            let value = last_waiter
+                .value
+                .take()
+                .expect("wait_node must contain value");
             self.buffer.push(value);
 
             last_waiter.state = SendPollState::SendComplete;
@@ -197,8 +204,7 @@ where
                     // try to copy a value from a potential waiter into the channel.
                     self.try_copy_value_from_last_waiter();
                     Poll::Ready(Some(val))
-                }
-                else if !self.send_waiters.is_empty() {
+                } else if !self.send_waiters.is_empty() {
                     // This path should be only used for 0 capacity queues.
                     // Since the list is not empty, a value is available.
                     // Extract it from the sender in order to return it
@@ -209,8 +215,10 @@ where
                     // Safety: The sender can't be null, since we only add valid
                     // senders to the queue
                     let last_sender = &mut (*last_sender);
-                    let val = last_sender.value.take().expect(
-                        "Value must be available");
+                    let val = last_sender
+                        .value
+                        .take()
+                        .expect("Value must be available");
                     last_sender.state = SendPollState::SendComplete;
 
                     // Wakeup the waiter
@@ -219,67 +227,69 @@ where
                     }
 
                     Poll::Ready(Some(val))
-                }
-                else if self.is_closed {
+                } else if self.is_closed {
                     Poll::Ready(None)
-                }
-                else {
+                } else {
                     // Added the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = RecvPollState::Registered;
                     self.receive_waiters.add_front(wait_node);
                     Poll::Pending
                 }
-            },
+            }
             RecvPollState::Registered => {
                 // Since the channel wakes up all waiters and moves their states
                 // to unregistered there can't be any value in the channel in
                 // this state.
                 Poll::Pending
-            },
+            }
         }
     }
 
-    fn remove_send_waiter(&mut self, wait_node: &mut ListNode<SendWaitQueueEntry<T>>) {
+    fn remove_send_waiter(
+        &mut self,
+        wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
+    ) {
         // ChannelSendFuture only needs to get removed if it had been added to
         // the wait queue of the channel.
         // This has happened in the SendPollState::Registered case.
         match wait_node.state {
             SendPollState::Registered => {
-                if ! unsafe { self.send_waiters.remove(wait_node) } {
+                if !unsafe { self.send_waiters.remove(wait_node) } {
                     // Panic if the address isn't found. This can only happen if the contract was
                     // violated, e.g. the WaitQueueEntry got moved after the initial poll.
                     panic!("Future could not be removed from wait queue");
                 }
                 wait_node.state = SendPollState::Unregistered;
-            },
-            SendPollState::Unregistered => {
-            },
+            }
+            SendPollState::Unregistered => {}
             SendPollState::SendComplete => {
                 // Send was complete. In that case the queue item is not in the list
-            },
+            }
         }
     }
 
-    fn remove_receive_waiter(&mut self, wait_node: &mut ListNode<RecvWaitQueueEntry>) {
+    fn remove_receive_waiter(
+        &mut self,
+        wait_node: &mut ListNode<RecvWaitQueueEntry>,
+    ) {
         // ChannelReceiveFuture only needs to get removed if it had been added to
         // the wait queue of the channel. This has happened in the RecvPollState::Registered case.
         match wait_node.state {
             RecvPollState::Registered => {
-                if ! unsafe { self.receive_waiters.remove(wait_node) } {
+                if !unsafe { self.receive_waiters.remove(wait_node) } {
                     // Panic if the address isn't found. This can only happen if the contract was
                     // violated, e.g. the WaitQueueEntry got moved after the initial poll.
                     panic!("Future could not be removed from wait queue");
                 }
                 wait_node.state = RecvPollState::Unregistered;
-            },
+            }
             RecvPollState::Notified => {
                 // wakeup another receive waiter instead
                 wakeup_last_receive_waiter(&mut self.receive_waiters);
                 wait_node.state = RecvPollState::Unregistered;
-            },
-            RecvPollState::Unregistered => {
-            },
+            }
+            RecvPollState::Unregistered => {}
         }
     }
 }
@@ -301,28 +311,41 @@ where
 /// The returned Future will get resolved when the value has been stored
 /// inside the channel.
 pub struct GenericChannel<MutexType: RawMutex, T, A>
-where A: RingBuf<Item=T> {
+where
+    A: RingBuf<Item = T>,
+{
     inner: Mutex<MutexType, ChannelState<T, A>>,
 }
 
 // The channel can be sent to other threads as long as it's not borrowed and the
 // value in it can be sent to other threads.
-unsafe impl<MutexType: RawMutex + Send, T: Send, A> Send for GenericChannel<MutexType, T, A>
-where A: RingBuf<Item=T> + Send {}
+unsafe impl<MutexType: RawMutex + Send, T: Send, A> Send
+    for GenericChannel<MutexType, T, A>
+where
+    A: RingBuf<Item = T> + Send,
+{
+}
 // The channel is thread-safe as long as a thread-safe mutex is used
-unsafe impl<MutexType: RawMutex + Sync, T: Send, A> Sync for GenericChannel<MutexType, T, A>
-where A: RingBuf<Item=T> {}
+unsafe impl<MutexType: RawMutex + Sync, T: Send, A> Sync
+    for GenericChannel<MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
+{
+}
 
-impl<MutexType: RawMutex, T, A> core::fmt::Debug for GenericChannel<MutexType, T, A>
-where A: RingBuf<Item=T> {
+impl<MutexType: RawMutex, T, A> core::fmt::Debug
+    for GenericChannel<MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("Channel")
-            .finish()
+        f.debug_struct("Channel").finish()
     }
 }
 
 impl<MutexType: RawMutex, T, A> GenericChannel<MutexType, T, A>
-where A: RingBuf<Item=T>
+where
+    A: RingBuf<Item = T>,
 {
     /// Creates a new Channel, utilizing the default capacity that
     /// the RingBuffer in `A` provides.
@@ -372,38 +395,44 @@ where A: RingBuf<Item=T>
     }
 }
 
-impl <MutexType: RawMutex, T, A> ChannelSendAccess<T> for GenericChannel<MutexType, T, A>
-where A: RingBuf<Item=T>
+impl<MutexType: RawMutex, T, A> ChannelSendAccess<T>
+    for GenericChannel<MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
 {
     unsafe fn try_send(
         &self,
         wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
         cx: &mut Context<'_>,
-    ) -> (Poll<()>, Option<T>)
-    {
+    ) -> (Poll<()>, Option<T>) {
         self.inner.lock().try_send(wait_node, cx)
     }
 
-    fn remove_send_waiter(&self, wait_node: &mut ListNode<SendWaitQueueEntry<T>>)
-    {
+    fn remove_send_waiter(
+        &self,
+        wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
+    ) {
         self.inner.lock().remove_send_waiter(wait_node)
     }
 }
 
-impl <MutexType: RawMutex, T, A> ChannelReceiveAccess<T> for GenericChannel<MutexType, T, A>
-where A: RingBuf<Item=T>
+impl<MutexType: RawMutex, T, A> ChannelReceiveAccess<T>
+    for GenericChannel<MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
 {
     unsafe fn try_receive(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<T>>
-    {
+    ) -> Poll<Option<T>> {
         self.inner.lock().try_receive(wait_node, cx)
     }
 
-    fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>)
-    {
+    fn remove_receive_waiter(
+        &self,
+        wait_node: &mut ListNode<RecvWaitQueueEntry>,
+    ) {
         self.inner.lock().remove_receive_waiter(wait_node)
     }
 }
@@ -431,7 +460,8 @@ mod if_std {
     // `with_capacity()` is meaningful.
 
     /// A [`GenericChannel`] implementation backed by [`parking_lot`].
-    pub type Channel<T, A> = GenericChannel<parking_lot::RawMutex, T, ArrayRingBuf<T, A>>;
+    pub type Channel<T, A> =
+        GenericChannel<parking_lot::RawMutex, T, ArrayRingBuf<T, A>>;
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
@@ -459,8 +489,9 @@ mod if_alloc {
 
         /// Shared Channel State, which is referenced by Senders and Receivers
         struct GenericChannelSharedState<MutexType, T>
-        where MutexType: RawMutex
-            , T: 'static
+        where
+            MutexType: RawMutex,
+            T: 'static,
         {
             /// The amount of [`GenericSender`] instances which reference this state.
             senders: AtomicUsize,
@@ -472,40 +503,46 @@ mod if_alloc {
 
         // Implement ChannelAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl <MutexType, T> ChannelReceiveAccess<T> for GenericChannelSharedState<MutexType, T>
-        where MutexType: RawMutex
+        impl<MutexType, T> ChannelReceiveAccess<T>
+            for GenericChannelSharedState<MutexType, T>
+        where
+            MutexType: RawMutex,
         {
             unsafe fn try_receive(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
-            ) -> Poll<Option<T>>
-            {
+            ) -> Poll<Option<T>> {
                 self.channel.try_receive(wait_node, cx)
             }
 
-            fn remove_receive_waiter(&self, wait_node: &mut ListNode<RecvWaitQueueEntry>)
-            {
+            fn remove_receive_waiter(
+                &self,
+                wait_node: &mut ListNode<RecvWaitQueueEntry>,
+            ) {
                 self.channel.remove_receive_waiter(wait_node)
             }
         }
 
         // Implement ChannelAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl <MutexType, T> ChannelSendAccess<T> for GenericChannelSharedState<MutexType, T>
-        where MutexType: RawMutex
+        impl<MutexType, T> ChannelSendAccess<T>
+            for GenericChannelSharedState<MutexType, T>
+        where
+            MutexType: RawMutex,
         {
             unsafe fn try_send(
                 &self,
                 wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
                 cx: &mut Context<'_>,
-            ) -> (Poll<()>, Option<T>)
-            {
+            ) -> (Poll<()>, Option<T>) {
                 self.channel.try_send(wait_node, cx)
             }
 
-            fn remove_send_waiter(&self, wait_node: &mut ListNode<SendWaitQueueEntry<T>>)
-            {
+            fn remove_send_waiter(
+                &self,
+                wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
+            ) {
                 self.channel.remove_send_waiter(wait_node)
             }
         }
@@ -516,8 +553,10 @@ mod if_alloc {
         /// Values can be sent into the channel through `send`.
         /// The returned Future will get resolved when the value has been stored inside the channel.
         pub struct GenericSender<MutexType, T>
-        where MutexType: RawMutex
-            , T: 'static {
+        where
+            MutexType: RawMutex,
+            T: 'static,
+        {
             inner: std::sync::Arc<GenericChannelSharedState<MutexType, T>>,
         }
 
@@ -527,31 +566,38 @@ mod if_alloc {
         /// Tasks can receive values from the channel through the `receive` method.
         /// The returned Future will get resolved when a value is sent into the channel.
         pub struct GenericReceiver<MutexType, T>
-        where MutexType: RawMutex
-            , T: 'static {
+        where
+            MutexType: RawMutex,
+            T: 'static,
+        {
             inner: std::sync::Arc<GenericChannelSharedState<MutexType, T>>,
         }
 
         impl<MutexType, T> core::fmt::Debug for GenericSender<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("Sender")
-                    .finish()
+                f.debug_struct("Sender").finish()
             }
         }
 
         impl<MutexType, T> core::fmt::Debug for GenericReceiver<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.debug_struct("Receiver")
-                    .finish()
+                f.debug_struct("Receiver").finish()
             }
         }
 
         impl<MutexType, T> Clone for GenericSender<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn clone(&self) -> Self {
-                let old_size = self.inner.senders.fetch_add(1, Ordering::Relaxed);
+                let old_size =
+                    self.inner.senders.fetch_add(1, Ordering::Relaxed);
                 if old_size > (core::isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
@@ -562,7 +608,9 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Drop for GenericSender<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn drop(&mut self) {
                 if self.inner.senders.fetch_sub(1, Ordering::Release) != 1 {
                     return;
@@ -575,9 +623,12 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Clone for GenericReceiver<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn clone(&self) -> Self {
-                let old_size = self.inner.receivers.fetch_add(1, Ordering::Relaxed);
+                let old_size =
+                    self.inner.receivers.fetch_add(1, Ordering::Relaxed);
                 if old_size > (core::isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
@@ -588,7 +639,9 @@ mod if_alloc {
         }
 
         impl<MutexType, T> Drop for GenericReceiver<MutexType, T>
-        where MutexType: RawMutex {
+        where
+            MutexType: RawMutex,
+        {
             fn drop(&mut self) {
                 if self.inner.receivers.fetch_sub(1, Ordering::Release) != 1 {
                     return;
@@ -615,28 +668,31 @@ mod if_alloc {
         /// # use futures_intrusive::channel::shared::channel;
         /// let (sender, receiver) = channel::<i32>(4);
         /// ```
-        pub fn generic_channel<MutexType, T>(capacity: usize) ->
-            (GenericSender<MutexType, T>, GenericReceiver<MutexType, T>)
-        where MutexType: RawMutex, T: Send {
-            let inner = std::sync::Arc::new(
-                GenericChannelSharedState {
-                    channel: GenericChannel::with_capacity(capacity),
-                    senders: AtomicUsize::new(1),
-                    receivers: AtomicUsize::new(1),
-                });
+        pub fn generic_channel<MutexType, T>(
+            capacity: usize,
+        ) -> (GenericSender<MutexType, T>, GenericReceiver<MutexType, T>)
+        where
+            MutexType: RawMutex,
+            T: Send,
+        {
+            let inner = std::sync::Arc::new(GenericChannelSharedState {
+                channel: GenericChannel::with_capacity(capacity),
+                senders: AtomicUsize::new(1),
+                receivers: AtomicUsize::new(1),
+            });
 
             let sender = GenericSender {
                 inner: inner.clone(),
             };
-            let receiver = GenericReceiver {
-                inner,
-            };
+            let receiver = GenericReceiver { inner };
 
             (sender, receiver)
         }
 
         impl<MutexType, T> GenericSender<MutexType, T>
-        where MutexType: RawMutex + 'static {
+        where
+            MutexType: RawMutex + 'static,
+        {
             /// Returns a future that gets fulfilled when the value has been written to
             /// the channel.
             /// If the channel gets closed while the send is in progress, sending the
@@ -659,7 +715,9 @@ mod if_alloc {
         }
 
         impl<MutexType, T> GenericReceiver<MutexType, T>
-        where MutexType: RawMutex + 'static {
+        where
+            MutexType: RawMutex + 'static,
+        {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
             pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
@@ -693,20 +751,26 @@ mod if_alloc {
             ///
             /// Refer to [`generic_channel`] for details.
             pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>)
-            where T: Send {
+            where
+                T: Send,
+            {
                 generic_channel::<parking_lot::RawMutex, T>(capacity)
             }
 
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
-            pub type UnbufferedSender<T> = GenericSender<parking_lot::RawMutex, T>;
+            pub type UnbufferedSender<T> =
+                GenericSender<parking_lot::RawMutex, T>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
-            pub type UnbufferedReceiver<T> = GenericReceiver<parking_lot::RawMutex, T>;
+            pub type UnbufferedReceiver<T> =
+                GenericReceiver<parking_lot::RawMutex, T>;
 
             /// Creates a new unbuffered channel.
             ///
             /// Refer to [`generic_channel`] for details.
             pub fn unbuffered_channel<T>() -> (Sender<T>, Receiver<T>)
-            where T: Send {
+            where
+                T: Send,
+            {
                 generic_channel::<parking_lot::RawMutex, T>(0)
             }
         }

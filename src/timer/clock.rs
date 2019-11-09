@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 /// A monotonic source of time.
 ///
 /// Clocks must always returning increasing timestamps.
-pub trait Clock : Sync {
+pub trait Clock: Sync {
     /// Returns a timestamp in milliseconds which represents the current time
     /// according to the clock.
     ///
@@ -31,9 +31,7 @@ pub struct MockClock {
 impl core::fmt::Debug for MockClock {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let now = self.now();
-        f.debug_struct("MockClock")
-            .field("now", &now)
-            .finish()
+        f.debug_struct("MockClock").field("now", &now).finish()
     }
 }
 
@@ -65,7 +63,7 @@ impl Clock for MockClock {
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use std::time::{Instant};
+    use std::time::Instant;
 
     /// A Clock that makes use of the Standard libraries [`std::time::Instant`]
     /// functionality in order to generate monotonically increasing timestamps.
@@ -75,8 +73,7 @@ mod if_std {
 
     impl core::fmt::Debug for StdClock {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-            f.debug_struct("StdClock")
-                .finish()
+            f.debug_struct("StdClock").finish()
         }
     }
 

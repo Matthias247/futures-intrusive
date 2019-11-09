@@ -1,8 +1,8 @@
 //! An intrusive double linked list of data
 
+use core::marker::PhantomPinned;
 use core::ops::{Deref, DerefMut};
 use core::ptr::null_mut;
-use core::marker::{PhantomPinned};
 
 /// A node which carries data of type `T` and is stored in an intrusive list
 #[derive(Debug)]
@@ -65,9 +65,7 @@ impl<T> LinkedList<T> {
     /// This function is only safe as long as all pointers which are stored inside
     /// the linked list are valid.
     pub unsafe fn into_iter(self) -> LinkedListIterator<T> {
-        LinkedListIterator {
-            current: self.head,
-        }
+        LinkedListIterator { current: self.head }
     }
 
     /// Consumes the list and creates an iterator over the linked list in reverse
@@ -75,9 +73,7 @@ impl<T> LinkedList<T> {
     /// This function is only safe as long as all pointers which are stored inside
     /// the linked list are valid.
     pub unsafe fn into_reverse_iter(self) -> LinkedListReverseIterator<T> {
-        LinkedListReverseIterator {
-            current: self.tail,
-        }
+        LinkedListReverseIterator { current: self.tail }
     }
 
     /// Adds an item to the front of the linked list.
@@ -96,7 +92,10 @@ impl<T> LinkedList<T> {
         }
     }
 
-    pub unsafe fn add_sorted(&mut self, item: *mut ListNode<T>) where T: PartialOrd {
+    pub unsafe fn add_sorted(&mut self, item: *mut ListNode<T>)
+    where
+        T: PartialOrd,
+    {
         if item.is_null() {
             return;
         }
@@ -117,8 +116,7 @@ impl<T> LinkedList<T> {
                 (*current).prev = item;
                 if !prev.is_null() {
                     (*prev).next = item;
-                }
-                else {
+                } else {
                     // We are inserting at the beginning of the list
                     self.head = item;
                 }
@@ -130,7 +128,7 @@ impl<T> LinkedList<T> {
             current = (*current).next;
         }
 
-        // We looped through the whole list and the item is bigger or equal 
+        // We looped through the whole list and the item is bigger or equal
         // than everything we found up to now.
         // Insert at the end. Since we checked before that the list isn't empty,
         // tail always has a value.
@@ -167,9 +165,8 @@ impl<T> LinkedList<T> {
         let last = self.tail;
         self.tail = (*last).prev;
         if !(*last).prev.is_null() {
-           (*(*last).prev).next = null_mut();
-        }
-        else {
+            (*(*last).prev).next = null_mut();
+        } else {
             // This was the last item in the list
             self.head = null_mut();
         }
@@ -186,10 +183,7 @@ impl<T> LinkedList<T> {
         let tail = self.tail;
         self.head = null_mut();
         self.tail = null_mut();
-        LinkedList::<T>{
-            head,
-            tail,
-        }
+        LinkedList::<T> { head, tail }
     }
 
     /// Returns whether the linked list doesn not contain any node
@@ -218,8 +212,7 @@ impl<T> LinkedList<T> {
                 return false;
             }
             self.head = (*item).next;
-        }
-        else {
+        } else {
             if (*prev).next != item {
                 return false;
             }
@@ -233,8 +226,7 @@ impl<T> LinkedList<T> {
                 return false;
             }
             self.tail = (*item).prev;
-        }
-        else {
+        } else {
             if (*next).prev != item {
                 return false;
             }
@@ -300,15 +292,19 @@ mod tests {
     use super::*;
 
     unsafe fn collect_list<T: Copy>(list: LinkedList<T>) -> Vec<T> {
-        list.into_iter().map(|item|(*(*item).deref())).collect()
+        list.into_iter().map(|item| (*(*item).deref())).collect()
     }
 
     unsafe fn collect_reverse_list<T: Copy>(list: LinkedList<T>) -> Vec<T> {
-        list.into_reverse_iter().map(|item|(*(*item).deref())).collect()
+        list.into_reverse_iter()
+            .map(|item| (*(*item).deref()))
+            .collect()
     }
 
     unsafe fn add_nodes(
-        list: &mut LinkedList<i32>, nodes: &mut [&mut ListNode<i32>]) {
+        list: &mut LinkedList<i32>,
+        nodes: &mut [&mut ListNode<i32>],
+    ) {
         for node in nodes.iter_mut() {
             list.add_front(*node);
         }
@@ -340,12 +336,12 @@ mod tests {
             let mut list = LinkedList::new();
             setup(&mut list);
             let items: Vec<i32> = collect_list(list);
-            assert_eq!([5,7,31].to_vec(), items);
+            assert_eq!([5, 7, 31].to_vec(), items);
 
             let mut list = LinkedList::new();
             setup(&mut list);
             let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([31,7,5].to_vec(), items);
+            assert_eq!([31, 7, 5].to_vec(), items);
         }
     }
 
@@ -368,49 +364,49 @@ mod tests {
             assert_eq!([5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut d, &mut c, &mut b]);
+            add_nodes(&mut list, &mut [&mut d, &mut c, &mut b]);
             list.add_sorted(&mut a);
             let items: Vec<i32> = collect_list(list);
             assert_eq!([5, 7, 31, 99].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut d, &mut c, &mut b]);
+            add_nodes(&mut list, &mut [&mut d, &mut c, &mut b]);
             list.add_sorted(&mut a);
             let items: Vec<i32> = collect_reverse_list(list);
             assert_eq!([99, 31, 7, 5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut d, &mut c, &mut a]);
+            add_nodes(&mut list, &mut [&mut d, &mut c, &mut a]);
             list.add_sorted(&mut b);
             let items: Vec<i32> = collect_list(list);
             assert_eq!([5, 7, 31, 99].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut d, &mut c, &mut a]);
+            add_nodes(&mut list, &mut [&mut d, &mut c, &mut a]);
             list.add_sorted(&mut b);
             let items: Vec<i32> = collect_reverse_list(list);
             assert_eq!([99, 31, 7, 5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut d, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut d, &mut b, &mut a]);
             list.add_sorted(&mut c);
             let items: Vec<i32> = collect_list(list);
             assert_eq!([5, 7, 31, 99].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut d, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut d, &mut b, &mut a]);
             list.add_sorted(&mut c);
             let items: Vec<i32> = collect_reverse_list(list);
             assert_eq!([99, 31, 7, 5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
             list.add_sorted(&mut d);
             let items: Vec<i32> = collect_list(list);
             assert_eq!([5, 7, 31, 99].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
             list.add_sorted(&mut d);
             let items: Vec<i32> = collect_reverse_list(list);
             assert_eq!([99, 31, 7, 5].to_vec(), items);
@@ -425,13 +421,13 @@ mod tests {
             let mut c = ListNode::new(31);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
 
             let taken = list.take();
             let items: Vec<i32> = collect_list(list);
             assert!(items.is_empty());
             let taken_items: Vec<i32> = collect_list(taken);
-            assert_eq!([5,7,31].to_vec(), taken_items);
+            assert_eq!([5, 7, 31].to_vec(), taken_items);
         }
     }
 
@@ -443,7 +439,7 @@ mod tests {
             let mut c = ListNode::new(31);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
 
             let last = list.peek_last();
             assert_eq!(31, *(*last).deref());
@@ -470,23 +466,23 @@ mod tests {
             let mut c = ListNode::new(31);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
             let removed = list.remove_last();
             assert_clean(removed);
             assert!(!list.is_empty());
             let items: Vec<i32> = collect_list(list);
-            assert_eq!([5,7].to_vec(), items);
+            assert_eq!([5, 7].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
             let removed = list.remove_last();
             assert_clean(removed);
             assert!(!list.is_empty());
             let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([7,5].to_vec(), items);
+            assert_eq!([7, 5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut b, &mut a]);
             let removed = list.remove_last();
             assert_clean(removed);
             assert!(!list.is_empty());
@@ -494,7 +490,7 @@ mod tests {
             assert_eq!([5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut b, &mut a]);
+            add_nodes(&mut list, &mut [&mut b, &mut a]);
             let removed = list.remove_last();
             assert_clean(removed);
             assert!(!list.is_empty());
@@ -502,7 +498,7 @@ mod tests {
             assert_eq!([5].to_vec(), items);
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut a]);
+            add_nodes(&mut list, &mut [&mut a]);
             let removed = list.remove_last();
             assert_clean(removed);
             assert!(list.is_empty());
@@ -510,7 +506,7 @@ mod tests {
             assert!(items.is_empty());
 
             let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut[&mut a]);
+            add_nodes(&mut list, &mut [&mut a]);
             let removed = list.remove_last();
             assert_clean(removed);
             assert!(list.is_empty());
@@ -529,7 +525,7 @@ mod tests {
             {
                 // Remove first
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
                 assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
@@ -541,7 +537,7 @@ mod tests {
                 assert_eq!([7, 31].to_vec(), items);
 
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
                 assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
@@ -555,7 +551,7 @@ mod tests {
             {
                 // Remove middle
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
                 assert_clean(&mut b);
                 assert_eq!(&mut c as *mut ListNode<i32>, a.next);
@@ -564,7 +560,7 @@ mod tests {
                 assert_eq!([5, 31].to_vec(), items);
 
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
                 assert_clean(&mut b);
                 assert_eq!(&mut c as *mut ListNode<i32>, a.next);
@@ -576,7 +572,7 @@ mod tests {
             {
                 // Remove last
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut c));
                 assert_clean(&mut c);
                 assert!(b.next.is_null());
@@ -585,7 +581,7 @@ mod tests {
                 assert_eq!([5, 7].to_vec(), items);
 
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut c, &mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut c));
                 assert_clean(&mut c);
                 assert!(b.next.is_null());
@@ -597,7 +593,7 @@ mod tests {
             {
                 // Remove first of two
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
                 assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
@@ -610,7 +606,7 @@ mod tests {
                 assert_eq!([7].to_vec(), items);
 
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
                 assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
@@ -626,7 +622,7 @@ mod tests {
             {
                 // Remove last of two
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
                 assert_clean(&mut b);
                 assert_eq!(&mut a as *mut ListNode<i32>, list.head);
@@ -637,7 +633,7 @@ mod tests {
                 assert_eq!([5].to_vec(), items);
 
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut b, &mut a]);
+                add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
                 assert_clean(&mut b);
                 assert_eq!(&mut a as *mut ListNode<i32>, list.head);
@@ -651,7 +647,7 @@ mod tests {
             {
                 // Remove last item
                 let mut list = LinkedList::new();
-                add_nodes(&mut list, &mut[&mut a]);
+                add_nodes(&mut list, &mut [&mut a]);
                 assert_eq!(true, list.remove(&mut a));
                 assert_clean(&mut a);
                 assert!(list.head.is_null());

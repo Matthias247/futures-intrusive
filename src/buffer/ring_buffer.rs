@@ -1,6 +1,6 @@
-use core::mem::MaybeUninit;
-use core::marker::PhantomData;
 use super::RealArray;
+use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 
 /// A Ring Buffer of items
 pub trait RingBuf {
@@ -48,7 +48,9 @@ pub trait RingBuf {
 /// let buffer = Buffer5::new();
 /// ```
 pub struct ArrayRingBuf<T, A>
-where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
+where
+    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
+{
     buffer: MaybeUninit<A>,
     size: usize,
     recv_idx: usize,
@@ -57,17 +59,24 @@ where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
 }
 
 impl<T, A> core::fmt::Debug for ArrayRingBuf<T, A>
-where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> Result<(), core::fmt::Error> {
+where
+    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
+{
+    fn fmt(
+        &self,
+        f: &mut core::fmt::Formatter,
+    ) -> Result<(), core::fmt::Error> {
         f.debug_struct("ArrayRingBuf")
             .field("size", &self.size)
-            .field("cap",&self.capacity())
+            .field("cap", &self.capacity())
             .finish()
     }
 }
 
 impl<T, A> ArrayRingBuf<T, A>
-where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
+where
+    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
+{
     fn next_idx(&mut self, last_idx: usize) -> usize {
         if last_idx + 1 == self.capacity() {
             return 0;
@@ -77,7 +86,9 @@ where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
 }
 
 impl<T, A> RingBuf for ArrayRingBuf<T, A>
-where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
+where
+    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
+{
     type Item = T;
 
     fn new() -> Self {
@@ -141,7 +152,7 @@ where A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T> {
 
 impl<T, A> Drop for ArrayRingBuf<T, A>
 where
-    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>
+    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
 {
     fn drop(&mut self) {
         // Drop all elements which are still stored inside the buffer
@@ -172,7 +183,10 @@ mod if_std {
     }
 
     impl<T> core::fmt::Debug for HeapRingBuf<T> {
-        fn fmt(&self, f: &mut core::fmt::Formatter) -> Result<(), core::fmt::Error> {
+        fn fmt(
+            &self,
+            f: &mut core::fmt::Formatter,
+        ) -> Result<(), core::fmt::Error> {
             f.debug_struct("HeapRingBuf")
                 .field("size", &self.buffer.len())
                 .field("cap", &self.cap)
@@ -235,7 +249,7 @@ mod tests {
     use super::*;
     use crate::buffer::ring_buffer::if_std::HeapRingBuf;
 
-    fn test_ring_buf<Buf: RingBuf<Item=u32>>(mut buf: Buf) {
+    fn test_ring_buf<Buf: RingBuf<Item = u32>>(mut buf: Buf) {
         assert_eq!(5, buf.capacity());
         assert_eq!(0, buf.len());
         assert_eq!(true, buf.is_empty());
@@ -257,16 +271,16 @@ mod tests {
         assert_eq!(0, buf.len());
         assert_eq!(true, buf.is_empty());
 
-        for (i, val) in [4,5,6,7,8].iter().enumerate() {
+        for (i, val) in [4, 5, 6, 7, 8].iter().enumerate() {
             buf.push(*val);
-            assert_eq!(i+1, buf.len());
+            assert_eq!(i + 1, buf.len());
             assert_eq!(i != 4, buf.can_push());
             assert_eq!(false, buf.is_empty());
         }
 
-        for (i, val) in [4,5,6,7,8].iter().enumerate() {
+        for (i, val) in [4, 5, 6, 7, 8].iter().enumerate() {
             assert_eq!(*val, buf.pop());
-            assert_eq!(4-i, buf.len());
+            assert_eq!(4 - i, buf.len());
             assert_eq!(true, buf.can_push());
             assert_eq!(i == 4, buf.is_empty());
         }

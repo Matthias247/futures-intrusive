@@ -1,12 +1,12 @@
 //! An asynchronously awaitable semaphore for synchronization between concurrently
 //! executing futures.
 
-use futures_core::future::{Future, FusedFuture};
-use futures_core::task::{Context, Poll, Waker};
-use core::pin::Pin;
-use lock_api::{RawMutex, Mutex as LockApiMutex};
-use crate::NoopLock;
 use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::pin::Pin;
+use futures_core::future::{FusedFuture, Future};
+use futures_core::task::{Context, Poll, Waker};
+use lock_api::{Mutex as LockApiMutex, RawMutex};
 
 /// Tracks how the future had interacted with the semaphore
 #[derive(PartialEq)]
@@ -75,7 +75,8 @@ impl SemaphoreState {
             // The ListNode also is guaranteed to be valid inside the Mutex, since
             // waiters need to remove themselves from the wait queue.
             unsafe {
-                let last_waiter: &mut ListNode<WaitQueueEntry> = &mut (*last_waiter);
+                let last_waiter: &mut ListNode<WaitQueueEntry> =
+                    &mut (*last_waiter);
 
                 // Check if enough permits are available for this waiter.
                 // If not then a wakeup attempt won't be successful.
@@ -102,8 +103,7 @@ impl SemaphoreState {
                 // That avoids having to remove the wait element later.
                 if !self.is_fair {
                     self.waiters.remove_last();
-                }
-                else {
+                } else {
                     // For a fair Semaphore we never wake more than 1 task.
                     // That one needs to acquire the Semaphore.
                     // TODO: We actually should be able to wake more, since
@@ -139,12 +139,14 @@ impl SemaphoreState {
         // - enough permits available
         // - the Semaphore is either not fair, or there are no waiters
         // - required_permits == 0
-        if (self.permits >= required_permits) &&
-            (!self.is_fair || self.waiters.is_empty() || required_permits == 0) {
+        if (self.permits >= required_permits)
+            && (!self.is_fair
+                || self.waiters.is_empty()
+                || required_permits == 0)
+        {
             self.permits -= required_permits;
             true
-        }
-        else {
+        } else {
             false
         }
     }
@@ -165,23 +167,21 @@ impl SemaphoreState {
                 if self.try_acquire_sync(wait_node.required_permits) {
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-            },
+            }
             PollState::Waiting => {
                 // The SemaphoreAcquireFuture is already in the queue.
                 if self.is_fair {
                     // The task needs to wait until it gets notified in order to
                     // maintain the ordering.
                     Poll::Pending
-                }
-                else {
+                } else {
                     // For throughput improvement purposes, check immediately
                     // if enough permits are available
                     if self.permits >= wait_node.required_permits {
@@ -191,12 +191,11 @@ impl SemaphoreState {
                         // get removed from the waiter list.
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
-                    }
-                    else {
+                    } else {
                         Poll::Pending
                     }
                 }
-            },
+            }
             PollState::Notified => {
                 // We had been woken by the semaphore, since the semaphore is available again.
                 // The semaphore thereby removed us from the waiters list.
@@ -216,30 +215,34 @@ impl SemaphoreState {
                     }
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // A fair semaphore should never end up in that branch, since
                     // it's only notified when it's permits are guaranteed to
                     // be available. assert! in order to find logic bugs
-                    assert!(!self.is_fair, "Fair semaphores should always be ready when notified");
+                    assert!(
+                        !self.is_fair,
+                        "Fair semaphores should always be ready when notified"
+                    );
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
                     self.waiters.add_front(wait_node);
                     Poll::Pending
                 }
-
-            },
+            }
             PollState::Done => {
                 // The future had been polled to completion before
                 panic!("polled Mutex after completion");
-            },
+            }
         }
     }
 
     /// Tries to remove a waiter from the wait queue, and panics if the
     /// waiter is no longer valid.
-    unsafe fn force_remove_waiter(&mut self, wait_node: *mut ListNode<WaitQueueEntry>) {
+    unsafe fn force_remove_waiter(
+        &mut self,
+        wait_node: *mut ListNode<WaitQueueEntry>,
+    ) {
         if !self.waiters.remove(wait_node) {
             // Panic if the address isn't found. This can only happen if the contract was
             // violated, e.g. the WaitQueueEntry got moved after the initial poll.
@@ -265,13 +268,13 @@ impl SemaphoreState {
                 wait_node.state = PollState::Done;
                 // Wakeup more waiters
                 self.wakeup_waiters();
-            },
+            }
             PollState::Waiting => {
                 // Remove the WaitQueueEntry from the linked list
                 unsafe { self.force_remove_waiter(wait_node) };
                 wait_node.state = PollState::Done;
-            },
-            PollState::New | PollState::Done => {},
+            }
+            PollState::New | PollState::Done => {}
         }
     }
 }
@@ -289,10 +292,10 @@ pub struct GenericSemaphoreReleaser<'a, MutexType: RawMutex> {
 }
 
 impl<MutexType: RawMutex> core::fmt::Debug
-for GenericSemaphoreReleaser<'_, MutexType> {
+    for GenericSemaphoreReleaser<'_, MutexType>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericSemaphoreReleaser")
-            .finish()
+        f.debug_struct("GenericSemaphoreReleaser").finish()
     }
 }
 
@@ -334,37 +337,38 @@ pub struct GenericSemaphoreAcquireFuture<'a, MutexType: RawMutex> {
 // Safety: Futures can be sent between threads as long as the underlying
 // semaphore is thread-safe (Sync), which allows to poll/register/unregister from
 // a different thread.
-unsafe impl<'a, MutexType: RawMutex + Sync> Send for GenericSemaphoreAcquireFuture<'a, MutexType> {}
+unsafe impl<'a, MutexType: RawMutex + Sync> Send
+    for GenericSemaphoreAcquireFuture<'a, MutexType>
+{
+}
 
 impl<'a, MutexType: RawMutex> core::fmt::Debug
-for GenericSemaphoreAcquireFuture<'a, MutexType> {
+    for GenericSemaphoreAcquireFuture<'a, MutexType>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("GenericSemaphoreAcquireFuture")
-            .finish()
+        f.debug_struct("GenericSemaphoreAcquireFuture").finish()
     }
 }
 
-impl<'a, MutexType: RawMutex> Future for GenericSemaphoreAcquireFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> Future
+    for GenericSemaphoreAcquireFuture<'a, MutexType>
+{
     type Output = GenericSemaphoreReleaser<'a, MutexType>;
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside GenericSemaphoreAcquireFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut GenericSemaphoreAcquireFuture<MutexType> = unsafe {
-            Pin::get_unchecked_mut(self)
-        };
+        let mut_self: &mut GenericSemaphoreAcquireFuture<MutexType> =
+            unsafe { Pin::get_unchecked_mut(self) };
 
-        let semaphore = mut_self.semaphore.expect("polled GenericSemaphoreAcquireFuture after completion");
+        let semaphore = mut_self
+            .semaphore
+            .expect("polled GenericSemaphoreAcquireFuture after completion");
         let mut semaphore_state = semaphore.state.lock();
 
-        let poll_res = unsafe {
-            semaphore_state.try_acquire(
-                &mut mut_self.wait_node,
-                cx)};
+        let poll_res =
+            unsafe { semaphore_state.try_acquire(&mut mut_self.wait_node, cx) };
 
         match poll_res {
             Poll::Pending => Poll::Pending,
@@ -375,22 +379,26 @@ impl<'a, MutexType: RawMutex> Future for GenericSemaphoreAcquireFuture<'a, Mutex
                     true => mut_self.wait_node.required_permits,
                     false => 0,
                 };
-                Poll::Ready(GenericSemaphoreReleaser::<'a, MutexType>{
+                Poll::Ready(GenericSemaphoreReleaser::<'a, MutexType> {
                     semaphore,
                     permits: to_release,
                 })
-            },
+            }
         }
     }
 }
 
-impl<'a, MutexType: RawMutex> FusedFuture for GenericSemaphoreAcquireFuture<'a, MutexType> {
-   fn is_terminated(&self) -> bool {
-       self.semaphore.is_none()
-   }
+impl<'a, MutexType: RawMutex> FusedFuture
+    for GenericSemaphoreAcquireFuture<'a, MutexType>
+{
+    fn is_terminated(&self) -> bool {
+        self.semaphore.is_none()
+    }
 }
 
-impl<'a, MutexType: RawMutex> Drop for GenericSemaphoreAcquireFuture<'a, MutexType> {
+impl<'a, MutexType: RawMutex> Drop
+    for GenericSemaphoreAcquireFuture<'a, MutexType>
+{
     fn drop(&mut self) {
         // If this GenericSemaphoreAcquireFuture has been polled and it was added to the
         // wait queue at the semaphore, it must be removed before dropping.
@@ -460,7 +468,10 @@ impl<MutexType: RawMutex> GenericSemaphore<MutexType> {
     /// permits have been acquired.
     /// The Future will resolve to a [`GenericSemaphoreReleaser`], which will
     /// release all acquired permits automatically when dropped.
-    pub fn acquire(&self, nr_permits: usize) -> GenericSemaphoreAcquireFuture<'_, MutexType> {
+    pub fn acquire(
+        &self,
+        nr_permits: usize,
+    ) -> GenericSemaphoreAcquireFuture<'_, MutexType> {
         GenericSemaphoreAcquireFuture::<MutexType> {
             semaphore: Some(&self),
             wait_node: ListNode::new(WaitQueueEntry::new(nr_permits)),
@@ -475,14 +486,16 @@ impl<MutexType: RawMutex> GenericSemaphore<MutexType> {
     /// when dropped.
     ///
     /// Otherwise `None` will be returned.
-    pub fn try_acquire(&self, nr_permits: usize) -> Option<GenericSemaphoreReleaser<'_, MutexType>> {
+    pub fn try_acquire(
+        &self,
+        nr_permits: usize,
+    ) -> Option<GenericSemaphoreReleaser<'_, MutexType>> {
         if self.state.lock().try_acquire_sync(nr_permits) {
-            Some(GenericSemaphoreReleaser{
+            Some(GenericSemaphoreReleaser {
                 semaphore: self,
                 permits: nr_permits,
             })
-        }
-        else {
+        } else {
             None
         }
     }
@@ -514,7 +527,8 @@ pub type LocalSemaphore = GenericSemaphore<NoopLock>;
 /// A [`GenericSemaphoreReleaser`] for [`LocalSemaphore`].
 pub type LocalSemaphoreReleaser<'a> = GenericSemaphoreReleaser<'a, NoopLock>;
 /// A [`GenericSemaphoreAcquireFuture`] for [`LocalSemaphore`].
-pub type LocalSemaphoreAcquireFuture<'a> = GenericSemaphoreAcquireFuture<'a, NoopLock>;
+pub type LocalSemaphoreAcquireFuture<'a> =
+    GenericSemaphoreAcquireFuture<'a, NoopLock>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -525,9 +539,11 @@ mod if_std {
     /// A [`GenericSemaphore`] backed by [`parking_lot`].
     pub type Semaphore = GenericSemaphore<parking_lot::RawMutex>;
     /// A [`GenericSemaphoreReleaser`] for [`Semaphore`].
-    pub type SemaphoreReleaser<'a> = GenericSemaphoreReleaser<'a, parking_lot::RawMutex>;
+    pub type SemaphoreReleaser<'a> =
+        GenericSemaphoreReleaser<'a, parking_lot::RawMutex>;
     /// A [`GenericSemaphoreAcquireFuture`] for [`Semaphore`].
-    pub type SemaphoreAcquireFuture<'a> = GenericSemaphoreAcquireFuture<'a, parking_lot::RawMutex>;
+    pub type SemaphoreAcquireFuture<'a> =
+        GenericSemaphoreAcquireFuture<'a, parking_lot::RawMutex>;
 }
 
 #[cfg(feature = "std")]

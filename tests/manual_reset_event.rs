@@ -1,6 +1,6 @@
-use futures::future::{Future, FusedFuture};
+use futures::future::{FusedFuture, Future};
 use futures::task::Context;
-use futures_intrusive::sync::{LocalManualResetEvent};
+use futures_intrusive::sync::LocalManualResetEvent;
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 
@@ -127,7 +127,7 @@ macro_rules! gen_event_tests {
                 assert_eq!(count, 4);
             }
         }
-    }
+    };
 }
 
 gen_event_tests!(local_manual_reset_event_tests, LocalManualResetEvent);
@@ -135,22 +135,19 @@ gen_event_tests!(local_manual_reset_event_tests, LocalManualResetEvent);
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
+    use futures::executor::block_on;
+    use futures_intrusive::sync::ManualResetEvent;
     use std::sync::Arc;
     use std::thread;
     use std::time;
-    use futures::executor::block_on;
-    use futures_intrusive::sync::{ManualResetEvent};
 
     gen_event_tests!(manual_reset_event_tests, ManualResetEvent);
 
-    fn is_send<T: Send>(_: &T) {
-    }
+    fn is_send<T: Send>(_: &T) {}
 
-    fn is_send_value<T: Send>(_: T) {
-    }
+    fn is_send_value<T: Send>(_: T) {}
 
-    fn is_sync<T: Sync>(_: &T) {
-    }
+    fn is_sync<T: Sync>(_: &T) {}
 
     #[test]
     fn event_futures_are_send() {
@@ -169,14 +166,16 @@ mod if_std {
     fn multithreaded_smoke() {
         let event = Arc::new(ManualResetEvent::new(false));
 
-        let waiters: Vec<thread::JoinHandle<time::Instant>> =
-            [1..4].iter().map(|_| {
+        let waiters: Vec<thread::JoinHandle<time::Instant>> = [1..4]
+            .iter()
+            .map(|_| {
                 let ev = event.clone();
                 thread::spawn(move || {
                     block_on(ev.wait());
                     time::Instant::now()
                 })
-            }).collect();
+            })
+            .collect();
 
         let start = time::Instant::now();
 

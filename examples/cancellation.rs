@@ -57,8 +57,8 @@
 //! 3. The parent tasks waits for all sub-tasks to shut down, via waiting on
 //!   their wait-handles (which in our case are `Future`s that can be awaited
 //!   via `await` or various `join` functions).
-//! 
-//! After these steps have completed all sub tasks of a given parent have 
+//!
+//! After these steps have completed all sub tasks of a given parent have
 //! completed and the parent task can also finish. It can thereby return the
 //! results of the child tasks if required.
 //!
@@ -70,24 +70,20 @@
 //! is not constrained to interaction with `Channel` types.
 //! E.g. we can easily wait on receiving data on a socket while in parallel
 //! waiting for cancellation. This is not directly possible in Go.
-//! 
+//!
 //! It also similar to the `CancellationToken` mechanism in .NET. There the
 //! `CancellationToken` also needs to get forwarded as a parameter.
-//! 
+//!
 //! This example demonstrates the mechanisms via a distributed "FizzBuzz" checker.
 //! The "algorithm" uses a parent tasks which uses 2 child tasks for it's work.
 //! When the user cancels the program, a graceful shutdown as described should
 //! be performed. This allows the user to retrieve the results of the algorithm.
 
+use futures::{executor::block_on, join, select};
 use futures_intrusive::{
     channel::LocalUnbufferedChannel,
     sync::{LocalManualResetEvent, ManualResetEvent},
     timer::{StdClock, Timer, TimerService},
-};
-use futures::{
-    executor::block_on,
-    join,
-    select,
 };
 use lazy_static::lazy_static;
 use signal_hook;
@@ -96,8 +92,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    thread::{sleep, spawn},
     time::Duration,
-    thread::{spawn, sleep},
 };
 
 /// The result of our search for FizzBuzz values
@@ -122,7 +118,7 @@ struct SearchResult {
 /// lower overhead solution which does not require any internal synchronization.
 async fn fizzbuzz_search(
     max: usize,
-    cancellation_token: Arc<ManualResetEvent>
+    cancellation_token: Arc<ManualResetEvent>,
 ) -> SearchResult {
     // We start two child-tasks:
     // - One produces values to check
@@ -132,7 +128,7 @@ async fn fizzbuzz_search(
     // Both tasks are connected via a channel. Since the tasks are running as
     // subtasks of the same task in a singlethreaded executor, we can use an
     // extremely efficient LocalChannel for this.
-    // 
+    //
     // In order to make things a bit more interesting we do not utilize the same
     // cancellation signal for both tasks (which would also be a valid solution).
     // Instead we implement a sequential shutdown:
@@ -146,10 +142,9 @@ async fn fizzbuzz_search(
         max,
         &channel,
         &cancellation_token,
-        &checker_cancellation_token);
-    let checker_future = check_task(
-        &channel,
-        &checker_cancellation_token);
+        &checker_cancellation_token,
+    );
+    let checker_future = check_task(&channel, &checker_cancellation_token);
 
     // Here we wait for both tasks to complete. Waiting for all subtasks to
     // complete is one important part of structured concurrency.
@@ -171,10 +166,10 @@ async fn producer_task(
     max: usize,
     channel: &LocalUnbufferedChannel<usize>,
     main_cancellation_token: &ManualResetEvent,
-    consumer_cancellation_token: &LocalManualResetEvent
+    consumer_cancellation_token: &LocalManualResetEvent,
 ) {
-    for value in 1 .. max {
-         select! {
+    for value in 1..max {
+        select! {
             result = channel.send(value) => {
                 if !result.is_ok() {
                     unreachable!("This can not happen in this example");
@@ -207,7 +202,7 @@ async fn producer_task(
 /// forcefully cancelled. Otherwise no results would be available.
 async fn check_task(
     channel: &LocalUnbufferedChannel<usize>,
-    cancellation_token: &LocalManualResetEvent
+    cancellation_token: &LocalManualResetEvent,
 ) -> SearchResult {
     // Initialize the result with `None`s
     let mut result: SearchResult = Default::default();
@@ -256,7 +251,9 @@ async fn check_task(
 
 fn main() {
     // Spawn a background thread which advances the timer
-    let timer_join_handle = spawn(move || { timer_thread(); });
+    let timer_join_handle = spawn(move || {
+        timer_thread();
+    });
 
     // This is the asynchronous ManualResetEvent that will be used as a cancellation
     // token. When the cancellation is requested, the token will be set. Thereby
@@ -272,7 +269,8 @@ fn main() {
     let cloned_token = cancellation_token.clone(); // Clone for the background thread
     std::thread::spawn(move || {
         let term = Arc::new(AtomicBool::new(false));
-        signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term)).unwrap();
+        signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term))
+            .unwrap();
         while !term.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(100));
         }

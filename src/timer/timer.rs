@@ -1,13 +1,13 @@
 //! An asynchronously awaitable timer
 
-use futures_core::future::{Future, FusedFuture};
-use futures_core::task::{Context, Poll, Waker};
-use core::pin::Pin;
-use core::time::{Duration};
-use lock_api::{RawMutex, Mutex};
 use super::clock::Clock;
-use crate::NoopLock;
 use crate::intrusive_double_linked_list::{LinkedList, ListNode};
+use crate::NoopLock;
+use core::pin::Pin;
+use core::time::Duration;
+use futures_core::future::{FusedFuture, Future};
+use futures_core::task::{Context, Poll, Waker};
+use lock_api::{Mutex, RawMutex};
 
 /// Tracks how the future had interacted with the timer
 #[derive(PartialEq)]
@@ -52,7 +52,10 @@ impl PartialEq for TimerQueueEntry {
 }
 
 impl PartialOrd for TimerQueueEntry {
-    fn partial_cmp(&self, other: &TimerQueueEntry) -> Option<core::cmp::Ordering> {
+    fn partial_cmp(
+        &self,
+        other: &TimerQueueEntry,
+    ) -> Option<core::cmp::Ordering> {
         // Compare timer queue entries by expiration time
         self.expiry.partial_cmp(&other.expiry)
     }
@@ -89,23 +92,20 @@ impl TimerState {
                     // The timer is already expired
                     wait_node.state = PollState::Expired;
                     Poll::Ready(())
-                }
-                else {
+                } else {
                     // Added the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Registered;
                     self.waiters.add_sorted(wait_node);
                     Poll::Pending
                 }
-            },
+            }
             PollState::Registered => {
                 // Since the timer wakes up all waiters and moves their states to
                 // Expired when the timer expired, it can't be expired here yet
                 Poll::Pending
-            },
-            PollState::Expired => {
-                Poll::Ready(())
-            },
+            }
+            PollState::Expired => Poll::Ready(()),
         }
     }
 
@@ -113,7 +113,7 @@ impl TimerState {
         // TimerFuture only needs to get removed if it had been added to
         // the wait queue of the timer. This has happened in the PollState::Registered case.
         if let PollState::Registered = wait_node.state {
-            if ! unsafe { self.waiters.remove(wait_node) } {
+            if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the TimerQueueEntry got moved after the initial poll.
                 panic!("Future could not be removed from wait queue");
@@ -131,7 +131,7 @@ impl TimerState {
         if first.is_null() {
             return None;
         }
-        Some(unsafe {(*first).expiry})
+        Some(unsafe { (*first).expiry })
     }
 
     /// Checks whether any of the attached Futures is expired
@@ -151,8 +151,7 @@ impl TimerState {
                         task.wake();
                     }
                     self.waiters.remove(first);
-                }
-                else {
+                } else {
                     // Remaining timers are not expired
                     break;
                 }
@@ -225,14 +224,19 @@ pub struct GenericTimerService<MutexType: RawMutex> {
 }
 
 // The timer can be sent to other threads as long as it's not borrowed
-unsafe impl<MutexType: RawMutex + Send> Send for GenericTimerService<MutexType> {}
+unsafe impl<MutexType: RawMutex + Send> Send
+    for GenericTimerService<MutexType>
+{
+}
 // The timer is thread-safe as long as it uses a thread-safe mutex
-unsafe impl<MutexType: RawMutex + Sync> Sync for GenericTimerService<MutexType> {}
+unsafe impl<MutexType: RawMutex + Sync> Sync
+    for GenericTimerService<MutexType>
+{
+}
 
 impl<MutexType: RawMutex> core::fmt::Debug for GenericTimerService<MutexType> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("TimerService")
-            .finish()
+        f.debug_struct("TimerService").finish()
     }
 }
 
@@ -274,8 +278,10 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
     fn deadline_from_now(&self, duration: Duration) -> u64 {
         // TODO: Make this more efficient and with better overflow checking
         let now = self.inner.lock().clock.now() as u128;
-        let duration_ms = core::cmp::min(duration.as_millis(), core::u64::MAX as u128);
-        let expiry = core::cmp::min(now + duration_ms, core::u64::MAX as u128) as u64;
+        let duration_ms =
+            core::cmp::min(duration.as_millis(), core::u64::MAX as u128);
+        let expiry =
+            core::cmp::min(now + duration_ms, core::u64::MAX as u128) as u64;
         expiry
     }
 }
@@ -297,7 +303,10 @@ impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
     }
 }
 
-impl<MutexType: RawMutex> Timer for GenericTimerService<MutexType> where MutexType: Sync {
+impl<MutexType: RawMutex> Timer for GenericTimerService<MutexType>
+where
+    MutexType: Sync,
+{
     /// Returns a future that gets fulfilled after the given [`Duration`]
     fn delay(&self, delay: Duration) -> TimerFuture {
         let deadline = self.deadline_from_now(delay);
@@ -311,7 +320,7 @@ impl<MutexType: RawMutex> Timer for GenericTimerService<MutexType> where MutexTy
             timer_future: LocalTimerFuture {
                 timer: Some(self),
                 wait_node: ListNode::new(TimerQueueEntry::new(timestamp)),
-            }
+            },
         }
     }
 }
@@ -341,33 +350,27 @@ pub struct LocalTimerFuture<'a> {
 
 impl<'a> core::fmt::Debug for LocalTimerFuture<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("LocalTimerFuture")
-            .finish()
+        f.debug_struct("LocalTimerFuture").finish()
     }
 }
 
 impl<'a> Future for LocalTimerFuture<'a> {
     type Output = ();
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<()> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         // It might be possible to use Pin::map_unchecked here instead of the two unsafe APIs.
         // However this didn't seem to work for some borrow checker reasons
 
         // Safety: The next operations are safe, because Pin promises us that
         // the address of the wait queue entry inside TimerFuture is stable,
         // and we don't move any fields inside the future until it gets dropped.
-        let mut_self: &mut LocalTimerFuture = unsafe {
-            Pin::get_unchecked_mut(self)
-        };
+        let mut_self: &mut LocalTimerFuture =
+            unsafe { Pin::get_unchecked_mut(self) };
 
-        let timer = mut_self.timer.expect("polled TimerFuture after completion");
+        let timer =
+            mut_self.timer.expect("polled TimerFuture after completion");
 
-        let poll_res = unsafe {
-            timer.try_wait(&mut mut_self.wait_node, cx)
-        };
+        let poll_res = unsafe { timer.try_wait(&mut mut_self.wait_node, cx) };
 
         if poll_res.is_ready() {
             // A value was available
@@ -399,7 +402,7 @@ impl<'a> Drop for LocalTimerFuture<'a> {
 #[must_use = "futures do nothing unless polled"]
 pub struct TimerFuture<'a> {
     /// The Timer that is associated with this TimerFuture
-    timer_future: LocalTimerFuture<'a>
+    timer_future: LocalTimerFuture<'a>,
 }
 
 // Safety: TimerFutures are only returned by GenericTimerService instances which
@@ -408,22 +411,18 @@ unsafe impl<'a> Send for TimerFuture<'a> {}
 
 impl<'a> core::fmt::Debug for TimerFuture<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("TimerFuture")
-            .finish()
+        f.debug_struct("TimerFuture").finish()
     }
 }
 
 impl<'a> Future for TimerFuture<'a> {
     type Output = ();
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<()> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         // Safety: TimerFuture is a pure wrapper around LocalTimerFuture.
         // The inner value is never moved
         let inner_pin = unsafe {
-            Pin::map_unchecked_mut(self, |fut|&mut fut.timer_future)
+            Pin::map_unchecked_mut(self, |fut| &mut fut.timer_future)
         };
         inner_pin.poll(cx)
     }

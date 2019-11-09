@@ -6,26 +6,22 @@
 mod manual_reset_event;
 
 pub use self::manual_reset_event::{
-    GenericManualResetEvent, GenericWaitForEventFuture,
-    LocalManualResetEvent, LocalWaitForEventFuture,
+    GenericManualResetEvent, GenericWaitForEventFuture, LocalManualResetEvent,
+    LocalWaitForEventFuture,
 };
 
 #[cfg(feature = "std")]
-pub use self::manual_reset_event::{
-    ManualResetEvent, WaitForEventFuture,
-};
+pub use self::manual_reset_event::{ManualResetEvent, WaitForEventFuture};
 
 mod mutex;
 
 pub use self::mutex::{
-    GenericMutex, GenericMutexLockFuture, GenericMutexGuard,
-    LocalMutex, LocalMutexLockFuture, LocalMutexGuard,
+    GenericMutex, GenericMutexGuard, GenericMutexLockFuture, LocalMutex,
+    LocalMutexGuard, LocalMutexLockFuture,
 };
 
 #[cfg(feature = "std")]
-pub use self::mutex::{
-    Mutex, MutexLockFuture, MutexGuard,
-};
+pub use self::mutex::{Mutex, MutexGuard, MutexLockFuture};
 
 mod semaphore;
 
@@ -38,4 +34,3 @@ pub use self::semaphore::{
 pub use self::semaphore::{
     Semaphore, SemaphoreAcquireFuture, SemaphoreReleaser,
 };
-

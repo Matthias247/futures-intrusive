@@ -1,9 +1,7 @@
-use futures::future::{Future, FusedFuture};
+use futures::future::{FusedFuture, Future};
 use futures::task::{Context, Poll};
 use futures_intrusive::channel::{
-    ChannelSendError,
-    LocalChannel,
-    LocalUnbufferedChannel
+    ChannelSendError, LocalChannel, LocalUnbufferedChannel,
 };
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
@@ -21,9 +19,11 @@ struct DropCounter {
 impl DropCounter {
     fn new() -> DropCounter {
         DropCounter {
-            inner: std::sync::Arc::new(std::sync::Mutex::new(DropCounterInner {
-                count: std::collections::HashMap::new(),
-            }))
+            inner: std::sync::Arc::new(std::sync::Mutex::new(
+                DropCounterInner {
+                    count: std::collections::HashMap::new(),
+                },
+            )),
         }
     }
 
@@ -63,9 +63,9 @@ impl PartialEq for CountedElem {
 impl CountedElem {
     fn new(id: usize, drop_counter: DropCounter) -> CountedElem {
         CountedElem {
-            inner: std::sync::Arc::new(std::sync::Mutex::new(CountedElemInner {
-                id,
-            })),
+            inner: std::sync::Arc::new(std::sync::Mutex::new(
+                CountedElemInner { id },
+            )),
             drop_counter,
         }
     }
@@ -97,9 +97,11 @@ macro_rules! gen_mpmc_tests {
             fn assert_send_done<FutureType, T>(
                 cx: &mut Context,
                 send_fut: &mut core::pin::Pin<&mut FutureType>,
-                expected: Result<(), ChannelSendError<T>>)
-            where FutureType: Future<Output=Result<(), ChannelSendError<T>>> + FusedFuture,
-                T: PartialEq + core::fmt::Debug
+                expected: Result<(), ChannelSendError<T>>,
+            ) where
+                FutureType: Future<Output = Result<(), ChannelSendError<T>>>
+                    + FusedFuture,
+                T: PartialEq + core::fmt::Debug,
             {
                 match send_fut.as_mut().poll(cx) {
                     Poll::Pending => panic!("future is not ready"),
@@ -112,7 +114,11 @@ macro_rules! gen_mpmc_tests {
                 assert!(send_fut.as_mut().is_terminated());
             }
 
-            fn assert_send(cx: &mut Context, channel: &ChannelType, value: i32) {
+            fn assert_send(
+                cx: &mut Context,
+                channel: &ChannelType,
+                value: i32,
+            ) {
                 let send_fut = channel.send(value);
                 pin_mut!(send_fut);
                 assert!(!send_fut.as_mut().is_terminated());
@@ -123,9 +129,10 @@ macro_rules! gen_mpmc_tests {
             fn assert_receive_done<FutureType, T>(
                 cx: &mut Context,
                 receive_fut: &mut core::pin::Pin<&mut FutureType>,
-                value: Option<T>)
-            where FutureType: Future<Output=Option<T>> + FusedFuture,
-                T: PartialEq + core::fmt::Debug
+                value: Option<T>,
+            ) where
+                FutureType: Future<Output = Option<T>> + FusedFuture,
+                T: PartialEq + core::fmt::Debug,
             {
                 match receive_fut.as_mut().poll(cx) {
                     Poll::Pending => panic!("future is not ready"),
@@ -145,7 +152,7 @@ macro_rules! gen_mpmc_tests {
                     assert!(!receive_fut.as_mut().is_terminated());
 
                     assert_receive_done($cx, &mut receive_fut, $value);
-                }
+                };
             }
 
             #[test]
@@ -225,7 +232,7 @@ macro_rules! gen_mpmc_tests {
                 assert_receive_done(cx, &mut fut2, None);
             }
 
-           #[test]
+            #[test]
             fn receive_after_send() {
                 let channel = ChannelType::new();
                 let waker = &panic_waker();
@@ -583,7 +590,8 @@ macro_rules! gen_mpmc_tests {
                 let elem3 = CountedElem::new(3, drop_counter.clone());
 
                 {
-                    let channel = $channel_type::<CountedElem, [CountedElem; 3]>::new();
+                    let channel =
+                        $channel_type::<CountedElem, [CountedElem; 3]>::new();
 
                     // Fill the channel
                     let fut1 = channel.send(elem1.clone());
@@ -615,7 +623,8 @@ macro_rules! gen_mpmc_tests {
                 drop_counter.clear();
 
                 {
-                    let channel = $channel_type::<CountedElem, [CountedElem; 3]>::new();
+                    let channel =
+                        $channel_type::<CountedElem, [CountedElem; 3]>::new();
 
                     // Fill the channel
                     let fut1 = channel.send(elem1.clone());
@@ -661,28 +670,31 @@ macro_rules! gen_mpmc_tests {
                 assert_eq!(1, elem3.strong_count());
             }
         }
-    }
+    };
 }
 
-gen_mpmc_tests!(local_mpmc_channel_tests, LocalChannel, LocalUnbufferedChannel);
+gen_mpmc_tests!(
+    local_mpmc_channel_tests,
+    LocalChannel,
+    LocalUnbufferedChannel
+);
 
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
-    use futures_intrusive::channel::{Channel, UnbufferedChannel, shared::channel,
-        shared::Sender, shared::Receiver,
-        shared::ChannelReceiveFuture, shared::ChannelSendFuture};
+    use futures_intrusive::channel::{
+        shared::channel, shared::ChannelReceiveFuture,
+        shared::ChannelSendFuture, shared::Receiver, shared::Sender, Channel,
+        UnbufferedChannel,
+    };
 
     gen_mpmc_tests!(mpmc_channel_tests, Channel, UnbufferedChannel);
 
-    fn is_send<T: Send>(_: &T) {
-    }
+    fn is_send<T: Send>(_: &T) {}
 
-    fn is_send_value<T: Send>(_: T) {
-    }
+    fn is_send_value<T: Send>(_: T) {}
 
-    fn is_sync<T: Sync>(_: &T) {
-    }
+    fn is_sync<T: Sync>(_: &T) {}
 
     #[test]
     fn channel_futures_are_send() {
@@ -735,7 +747,9 @@ mod if_std {
     }
 
     impl<T> Stream for Receiver<T>
-    where T: 'static {
+    where
+        T: 'static,
+    {
         type Output = Option<T>;
         type Next = ChannelReceiveFuture<parking_lot::RawMutex, T>;
 
@@ -745,7 +759,9 @@ mod if_std {
     }
 
     impl<T> Sink for Sender<T>
-    where T: 'static {
+    where
+        T: 'static,
+    {
         type Input = T;
         type Error = ChannelSendError<T>;
         type Next = ChannelSendFuture<parking_lot::RawMutex, T>;
@@ -755,13 +771,13 @@ mod if_std {
         }
     }
 
-    async fn send_stream<S: Sink<Input=i32>>(stream: &S, value: i32) -> ()
-    {
+    async fn send_stream<S: Sink<Input = i32>>(stream: &S, value: i32) -> () {
         assert!(stream.send(value).await.is_ok());
     }
 
-    async fn read_stream<S: Stream<Output=Option<i32>>>(stream: &S) -> Option<i32>
-    {
+    async fn read_stream<S: Stream<Output = Option<i32>>>(
+        stream: &S,
+    ) -> Option<i32> {
         stream.next().await
     }
 
@@ -772,18 +788,22 @@ mod if_std {
 
         let (sender, receiver) = channel::<i32>(5);
 
-        let stream = || async move {
-            send_stream(&sender, 2).await;
-            send_stream(&sender, 7).await;
-            sender.close();
+        let stream = || {
+            async move {
+                send_stream(&sender, 2).await;
+                send_stream(&sender, 7).await;
+                sender.close();
+            }
         };
 
-        let drain = || async move {
-            let mut sum = 0;
-            loop {
-                match read_stream(&receiver).await {
-                    None => return sum,
-                    Some(v) => sum += v,
+        let drain = || {
+            async move {
+                let mut sum = 0;
+                loop {
+                    match read_stream(&receiver).await {
+                        None => return sum,
+                        Some(v) => sum += v,
+                    }
                 }
             }
         };
@@ -800,12 +820,12 @@ mod if_std {
                 match stream_fut.as_mut().poll(cx) {
                     Poll::Ready(_) => {
                         do_stream = false;
-                    },
+                    }
                     Poll::Pending => {
                         if !do_drain {
                             panic!("Expected channel to be closed");
                         }
-                    },
+                    }
                 }
             }
             if do_drain {
@@ -813,8 +833,8 @@ mod if_std {
                     Poll::Ready(res) => {
                         assert_eq!(9, res);
                         do_drain = false;
-                    },
-                    Poll::Pending => {},
+                    }
+                    Poll::Pending => {}
                 }
             }
         }
@@ -842,12 +862,12 @@ mod if_std {
 
         drop(sender2);
         match fut.as_mut().poll(cx) {
-            Poll::Ready(None) => {},
+            Poll::Ready(None) => {}
             Poll::Ready(Some(_)) => panic!("Expected no value"),
             Poll::Pending => panic!("Expected channel to be closed"),
         }
         match fut2.as_mut().poll(cx) {
-            Poll::Ready(None) => {},
+            Poll::Ready(None) => {}
             Poll::Ready(Some(_)) => panic!("Expected no value"),
             Poll::Pending => panic!("Expected channel to be closed"),
         }
@@ -889,12 +909,12 @@ mod if_std {
 
         drop(receiver2);
         match fut.as_mut().poll(cx) {
-            Poll::Ready(Err(ChannelSendError(27))) => {},
+            Poll::Ready(Err(ChannelSendError(27))) => {}
             Poll::Ready(v) => panic!("Unexpected value {:?}", v),
             Poll::Pending => panic!("Expected channel to be closed"),
         }
         match fut2.as_mut().poll(cx) {
-            Poll::Ready(Err(ChannelSendError(49))) => {},
+            Poll::Ready(Err(ChannelSendError(49))) => {}
             Poll::Ready(v) => panic!("Unexpected value {:?}", v),
             Poll::Pending => panic!("Expected channel to be closed"),
         }
