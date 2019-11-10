@@ -175,6 +175,9 @@ mod if_std {
     use std::collections::VecDeque;
 
     /// A Ring Buffer which stores all items on the heap.
+    ///
+    /// The `HeapRingBuf` will allocates its capacity ahead of time. This is good
+    /// fit when you have a constant latency between two components.
     pub struct HeapRingBuf<T> {
         buffer: VecDeque<T>,
         /// The capacity is stored extra, since VecDeque can allocate space for
@@ -238,6 +241,76 @@ mod if_std {
             self.buffer.pop_front().unwrap()
         }
     }
+
+    /// A Ring Buffer which stores all items on the heap but grows dynamically.
+    ///
+    /// A `GrowingRingBuf` does not allocate the capacity ahead of time, as
+    /// opposed to the `HeapRingBuf`. This makes it a good fit when you have
+    /// unpredictable latency between two components, when you want to
+    /// amortize your allocation costs or when you are using an external
+    /// back-pressure mechanism.
+    pub struct GrowingRingBuf<T> {
+        buffer: VecDeque<T>,
+        /// The maximum number of elements in the buffer.
+        limit: usize,
+    }
+
+    impl<T> core::fmt::Debug for GrowingRingBuf<T> {
+        fn fmt(
+            &self,
+            f: &mut core::fmt::Formatter,
+        ) -> Result<(), core::fmt::Error> {
+            f.debug_struct("GrowingRingBuf")
+                .field("size", &self.buffer.len())
+                .field("limit", &self.limit)
+                .finish()
+        }
+    }
+
+    impl<T> RingBuf for GrowingRingBuf<T> {
+        type Item = T;
+
+        fn new() -> Self {
+            Self {
+                buffer: VecDeque::new(),
+                limit: 0,
+            }
+        }
+
+        fn with_capacity(limit: usize) -> Self {
+            Self {
+                buffer: VecDeque::new(),
+                limit,
+            }
+        }
+
+        #[inline]
+        fn capacity(&self) -> usize {
+            self.limit
+        }
+
+        #[inline]
+        fn len(&self) -> usize {
+            self.buffer.len()
+        }
+
+        #[inline]
+        fn can_push(&self) -> bool {
+            self.buffer.len() != self.limit
+        }
+
+        #[inline]
+        fn push(&mut self, value: Self::Item) {
+            debug_assert!(self.can_push());
+            self.buffer.push_back(value);
+        }
+
+        #[inline]
+        fn pop(&mut self) -> Self::Item {
+            debug_assert!(self.buffer.len() > 0);
+            self.buffer.pop_front().unwrap()
+        }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -295,6 +368,12 @@ mod tests {
     #[test]
     fn test_heap_ring_buf() {
         let buf = HeapRingBuf::<u32>::with_capacity(5);
+        test_ring_buf(buf);
+    }
+
+    #[test]
+    fn test_growing_ring_buf() {
+        let buf = GrowingRingBuf::<u32>::with_capacity(5);
         test_ring_buf(buf);
     }
 }
