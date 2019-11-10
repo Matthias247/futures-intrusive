@@ -85,7 +85,7 @@ impl<T> SendWaitQueueEntry<T> {
 /// Adapter trait that allows Futures to generically interact with Channel
 /// implementations via dynamic dispatch.
 pub trait ChannelSendAccess<T> {
-    unsafe fn try_send(
+    unsafe fn send_or_register(
         &self,
         wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
         cx: &mut Context<'_>,
@@ -100,7 +100,7 @@ pub trait ChannelSendAccess<T> {
 /// Adapter trait that allows Futures to generically interact with Channel
 /// implementations via dynamic dispatch.
 pub trait ChannelReceiveAccess<T> {
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
@@ -161,7 +161,7 @@ impl<'a, MutexType, T> Future for ChannelReceiveFuture<'a, MutexType, T> {
             .expect("polled ChannelReceiveFuture after completion");
 
         let poll_res =
-            unsafe { channel.try_receive(&mut mut_self.wait_node, cx) };
+            unsafe { channel.receive_or_register(&mut mut_self.wait_node, cx) };
 
         if poll_res.is_ready() {
             // A value was available
@@ -254,7 +254,8 @@ impl<'a, MutexType, T> Future for ChannelSendFuture<'a, MutexType, T> {
             .channel
             .expect("polled ChannelSendFuture after completion");
 
-        let send_res = unsafe { channel.try_send(&mut mut_self.wait_node, cx) };
+        let send_res =
+            unsafe { channel.send_or_register(&mut mut_self.wait_node, cx) };
 
         match send_res.0 {
             Poll::Ready(()) => {
@@ -351,8 +352,9 @@ mod if_alloc {
                     .take()
                     .expect("polled ChannelReceiveFuture after completion");
 
-                let poll_res =
-                    unsafe { channel.try_receive(&mut mut_self.wait_node, cx) };
+                let poll_res = unsafe {
+                    channel.receive_or_register(&mut mut_self.wait_node, cx)
+                };
 
                 if poll_res.is_ready() {
                     // A value was available
@@ -431,8 +433,9 @@ mod if_alloc {
                     .take()
                     .expect("polled ChannelSendFuture after completion");
 
-                let send_res =
-                    unsafe { channel.try_send(&mut mut_self.wait_node, cx) };
+                let send_res = unsafe {
+                    channel.send_or_register(&mut mut_self.wait_node, cx)
+                };
 
                 match send_res.0 {
                     Poll::Ready(()) => {

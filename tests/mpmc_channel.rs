@@ -168,6 +168,91 @@ macro_rules! gen_mpmc_tests {
             }
 
             #[test]
+            fn unbuffered_try_receive() {
+                let channel = UnbufferedChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                let fut = channel.send(5);
+                pin_mut!(fut);
+                assert!(fut.as_mut().poll(cx).is_pending());
+                assert_eq!(count, 0);
+
+                channel.try_receive().unwrap();
+
+                assert_eq!(count, 1);
+                assert_send_done(cx, &mut fut, Ok(()));
+            }
+
+            #[test]
+            fn try_send_recv_smoke_test() {
+                let channel = ChannelType::with_capacity(3);
+
+                for _ in 0..3 {
+                    channel.try_send(5).unwrap();
+                }
+
+                channel.try_send(5).unwrap_err();
+
+                for _ in 0..3 {
+                    channel.try_receive().unwrap();
+                }
+
+                let err = channel.try_receive().unwrap_err();
+                assert!(err.is_empty());
+            }
+
+            #[test]
+            fn try_send_full_channel() {
+                let channel = ChannelType::with_capacity(3);
+
+                for _ in 0..3 {
+                    channel.try_send(5).unwrap();
+                }
+
+                let err = channel.try_send(5).unwrap_err();
+                assert!(err.is_full());
+            }
+
+            #[test]
+            fn try_send_on_closed_channel() {
+                let channel = ChannelType::new();
+
+                channel.close();
+
+                let err = channel.try_send(5).unwrap_err();
+                assert!(err.is_closed());
+            }
+
+            #[test]
+            fn try_receive_empty_channel() {
+                let channel = ChannelType::with_capacity(3);
+
+                let err = channel.try_receive().unwrap_err();
+                assert!(err.is_empty());
+            }
+
+            #[test]
+            fn try_recv_on_closed_channel() {
+                let channel = ChannelType::new();
+
+                channel.try_send(5).unwrap();
+
+                channel.close();
+
+                channel.try_receive().unwrap();
+                let err = channel.try_receive().unwrap_err();
+                assert!(err.is_closed());
+            }
+
+            #[test]
+            #[should_panic]
+            fn try_send_unbuffered_panics() {
+                let channel = UnbufferedChannelType::new();
+                let _ = channel.try_send(5);
+            }
+
+            #[test]
             fn buffered_close_unblocks_send() {
                 let channel = ChannelType::new();
                 let (waker, count) = new_count_waker();
@@ -838,6 +923,66 @@ mod if_std {
                 }
             }
         }
+    }
+
+    #[test]
+    fn try_send_recv_smoke_test() {
+        let (sender, receiver) = channel::<i32>(3);
+
+        for _ in 0..3 {
+            sender.try_send(5).unwrap();
+        }
+
+        sender.try_send(5).unwrap_err();
+
+        for _ in 0..3 {
+            receiver.try_receive().unwrap();
+        }
+
+        let err = receiver.try_receive().unwrap_err();
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn try_send_full_channel() {
+        let (sender, _receiver) = channel::<i32>(3);
+
+        for _ in 0..3 {
+            sender.try_send(5).unwrap();
+        }
+
+        let err = sender.try_send(5).unwrap_err();
+        assert!(err.is_full());
+    }
+
+    #[test]
+    fn try_send_on_closed_channel() {
+        let (sender, receiver) = channel::<i32>(3);
+
+        receiver.close();
+        let err = sender.try_send(5).unwrap_err();
+        assert!(err.is_closed());
+    }
+
+    #[test]
+    fn try_receive_empty_channel() {
+        let (_sender, receiver) = channel::<i32>(3);
+
+        let err = receiver.try_receive().unwrap_err();
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn try_recv_on_closed_channel() {
+        let (sender, receiver) = channel::<i32>(3);
+
+        sender.try_send(5).unwrap();
+
+        sender.close();
+
+        receiver.try_receive().unwrap();
+        let err = receiver.try_receive().unwrap_err();
+        assert!(err.is_closed());
     }
 
     #[test]
