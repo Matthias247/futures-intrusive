@@ -483,7 +483,6 @@ mod if_alloc {
     /// parameter.
     pub mod shared {
         use super::*;
-        use crate::buffer::FixedHeapBuf;
         use crate::channel::shared::{ChannelReceiveFuture, ChannelSendFuture};
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -763,39 +762,41 @@ mod if_alloc {
 
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
             ///
-            /// Uses a `FixedHeapBuf` which allocates the capacity ahead of time.
-            /// Refer to [`FixedHeapBuf`] for more information.
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
             ///
-            /// [`FixedHeapBuf`]: ../../buffer/struct.FixedHeapBuf.html
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
             pub type Sender<T> =
-                GenericSender<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
+                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             ///
-            /// Uses a `FixedHeapBuf` which allocates the capacity ahead of time.
-            /// Refer to [`FixedHeapBuf`] for more information.
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
             ///
-            /// [`FixedHeapBuf`]: ../../buffer/struct.FixedHeapBuf.html
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
             pub type Receiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
+                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
 
-            /// Creates a new channel.
+            /// Creates a new channel with the given buffering capacity
             ///
-            /// Refer to [`generic_channel`] for details.
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`generic_channel`] and [`GrowingHeapBuf`] for more information.
+            ///
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
             pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>)
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, FixedHeapBuf<T>>(
+                generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
                     capacity,
                 )
             }
-
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
             pub type UnbufferedSender<T> =
-                GenericSender<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
+                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             pub type UnbufferedReceiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
+                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
 
             /// Creates a new unbuffered channel.
             ///
@@ -804,37 +805,8 @@ mod if_alloc {
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, FixedHeapBuf<T>>(0)
-            }
-
-            /// A [`GenericSender`] implementation backed by [`parking_lot`].
-            ///
-            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
-            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
-            ///
-            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
-            pub type GrowingSender<T> =
-                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
-            /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
-            ///
-            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
-            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
-            ///
-            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
-            pub type GrowingReceiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
-
-            /// Creates a new growing channel.
-            ///
-            /// Refer to [`generic_channel`] for details.
-            pub fn growing_channel<T>(
-                capacity: usize,
-            ) -> (GrowingSender<T>, GrowingReceiver<T>)
-            where
-                T: Send,
-            {
                 generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
-                    capacity,
+                    0,
                 )
             }
         }
