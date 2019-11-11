@@ -2,7 +2,7 @@
 
 use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
 use crate::{
-    buffer::{ArrayRingBuf, RingBuf},
+    buffer::{ArrayBuf, RingBuf},
     NoopLock,
 };
 use core::marker::PhantomData;
@@ -440,7 +440,7 @@ where
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericChannel`] implementation which is not thread-safe.
-pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayRingBuf<T, A>>;
+pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
 
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
 pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
@@ -450,7 +450,7 @@ mod if_std {
     use super::*;
     // Export a thread-safe version using parking_lot::RawMutex
 
-    // TODO: We might also want to bind Channel to GenericChannel<..., HeapRingBuf>,
+    // TODO: We might also want to bind Channel to GenericChannel<..., FixedHeapBuf>,
     // which performs less type-churn.
     // However since we can't bind LocalChannel to that too due to no-std compatibility,
     // this would to introduce some inconsistency between those types.
@@ -461,7 +461,7 @@ mod if_std {
 
     /// A [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type Channel<T, A> =
-        GenericChannel<parking_lot::RawMutex, T, ArrayRingBuf<T, A>>;
+        GenericChannel<parking_lot::RawMutex, T, ArrayBuf<T, A>>;
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
@@ -483,30 +483,31 @@ mod if_alloc {
     /// parameter.
     pub mod shared {
         use super::*;
-        use crate::buffer::HeapRingBuf;
         use crate::channel::shared::{ChannelReceiveFuture, ChannelSendFuture};
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         /// Shared Channel State, which is referenced by Senders and Receivers
-        struct GenericChannelSharedState<MutexType, T>
+        struct GenericChannelSharedState<MutexType, T, A>
         where
             MutexType: RawMutex,
             T: 'static,
+            A: RingBuf<Item = T>,
         {
             /// The amount of [`GenericSender`] instances which reference this state.
             senders: AtomicUsize,
             /// The amount of [`GenericReceiver`] instances which reference this state.
             receivers: AtomicUsize,
             /// The channel on which is acted.
-            channel: GenericChannel<MutexType, T, HeapRingBuf<T>>,
+            channel: GenericChannel<MutexType, T, A>,
         }
 
         // Implement ChannelAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl<MutexType, T> ChannelReceiveAccess<T>
-            for GenericChannelSharedState<MutexType, T>
+        impl<MutexType, T, A> ChannelReceiveAccess<T>
+            for GenericChannelSharedState<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             unsafe fn try_receive(
                 &self,
@@ -526,10 +527,11 @@ mod if_alloc {
 
         // Implement ChannelAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl<MutexType, T> ChannelSendAccess<T>
-            for GenericChannelSharedState<MutexType, T>
+        impl<MutexType, T, A> ChannelSendAccess<T>
+            for GenericChannelSharedState<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             unsafe fn try_send(
                 &self,
@@ -552,12 +554,13 @@ mod if_alloc {
         ///
         /// Values can be sent into the channel through `send`.
         /// The returned Future will get resolved when the value has been stored inside the channel.
-        pub struct GenericSender<MutexType, T>
+        pub struct GenericSender<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
             T: 'static,
         {
-            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T>>,
+            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -565,35 +568,39 @@ mod if_alloc {
         ///
         /// Tasks can receive values from the channel through the `receive` method.
         /// The returned Future will get resolved when a value is sent into the channel.
-        pub struct GenericReceiver<MutexType, T>
+        pub struct GenericReceiver<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
             T: 'static,
         {
-            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T>>,
+            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
         }
 
-        impl<MutexType, T> core::fmt::Debug for GenericSender<MutexType, T>
+        impl<MutexType, T, A> core::fmt::Debug for GenericSender<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("Sender").finish()
             }
         }
 
-        impl<MutexType, T> core::fmt::Debug for GenericReceiver<MutexType, T>
+        impl<MutexType, T, A> core::fmt::Debug for GenericReceiver<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("Receiver").finish()
             }
         }
 
-        impl<MutexType, T> Clone for GenericSender<MutexType, T>
+        impl<MutexType, T, A> Clone for GenericSender<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             fn clone(&self) -> Self {
                 let old_size =
@@ -607,9 +614,10 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T> Drop for GenericSender<MutexType, T>
+        impl<MutexType, T, A> Drop for GenericSender<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             fn drop(&mut self) {
                 if self.inner.senders.fetch_sub(1, Ordering::Release) != 1 {
@@ -622,9 +630,10 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T> Clone for GenericReceiver<MutexType, T>
+        impl<MutexType, T, A> Clone for GenericReceiver<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             fn clone(&self) -> Self {
                 let old_size =
@@ -638,9 +647,10 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T> Drop for GenericReceiver<MutexType, T>
+        impl<MutexType, T, A> Drop for GenericReceiver<MutexType, T, A>
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
         {
             fn drop(&mut self) {
                 if self.inner.receivers.fetch_sub(1, Ordering::Release) != 1 {
@@ -668,11 +678,15 @@ mod if_alloc {
         /// # use futures_intrusive::channel::shared::channel;
         /// let (sender, receiver) = channel::<i32>(4);
         /// ```
-        pub fn generic_channel<MutexType, T>(
+        pub fn generic_channel<MutexType, T, A>(
             capacity: usize,
-        ) -> (GenericSender<MutexType, T>, GenericReceiver<MutexType, T>)
+        ) -> (
+            GenericSender<MutexType, T, A>,
+            GenericReceiver<MutexType, T, A>,
+        )
         where
             MutexType: RawMutex,
+            A: RingBuf<Item = T>,
             T: Send,
         {
             let inner = std::sync::Arc::new(GenericChannelSharedState {
@@ -689,9 +703,10 @@ mod if_alloc {
             (sender, receiver)
         }
 
-        impl<MutexType, T> GenericSender<MutexType, T>
+        impl<MutexType, T, A> GenericSender<MutexType, T, A>
         where
-            MutexType: RawMutex + 'static,
+            MutexType: 'static + RawMutex,
+            A: 'static + RingBuf<Item = T>,
         {
             /// Returns a future that gets fulfilled when the value has been written to
             /// the channel.
@@ -714,9 +729,10 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T> GenericReceiver<MutexType, T>
+        impl<MutexType, T, A> GenericReceiver<MutexType, T, A>
         where
-            MutexType: RawMutex + 'static,
+            MutexType: 'static + RawMutex,
+            A: 'static + RingBuf<Item = T>,
         {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
@@ -742,27 +758,45 @@ mod if_alloc {
         mod if_std {
             use super::*;
 
-            /// A [`GenericSender`] implementation backed by [`parking_lot`].
-            pub type Sender<T> = GenericSender<parking_lot::RawMutex, T>;
-            /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
-            pub type Receiver<T> = GenericReceiver<parking_lot::RawMutex, T>;
+            use crate::buffer::GrowingHeapBuf;
 
-            /// Creates a new channel.
+            /// A [`GenericSender`] implementation backed by [`parking_lot`].
             ///
-            /// Refer to [`generic_channel`] for details.
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
+            ///
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
+            pub type Sender<T> =
+                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
+            /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
+            ///
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
+            ///
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
+            pub type Receiver<T> =
+                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
+
+            /// Creates a new channel with the given buffering capacity
+            ///
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`generic_channel`] and [`GrowingHeapBuf`] for more information.
+            ///
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
             pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>)
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T>(capacity)
+                generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
+                    capacity,
+                )
             }
-
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
             pub type UnbufferedSender<T> =
-                GenericSender<parking_lot::RawMutex, T>;
+                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             pub type UnbufferedReceiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T>;
+                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
 
             /// Creates a new unbuffered channel.
             ///
@@ -771,7 +805,9 @@ mod if_alloc {
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T>(0)
+                generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
+                    0,
+                )
             }
         }
 
