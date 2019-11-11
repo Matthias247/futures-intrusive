@@ -3,6 +3,7 @@
 use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
 use crate::{
     buffer::{ArrayBuf, RingBuf},
+    utils::update_waker_ref,
     NoopLock,
 };
 use core::marker::PhantomData;
@@ -170,8 +171,11 @@ where
                 }
             }
             SendPollState::Registered => {
-                // Since the channel wakes up all waiters and moves their states to unregistered
-                // there can't be space available in the channel.
+                // Since the channel wakes up all waiters and moves their states
+                // to unregistered there can't be space available in the channel.
+                // However the caller might have passed a different `Waker`.
+                // In this case we need to update it.
+                update_waker_ref(&mut wait_node.task, cx);
                 (Poll::Pending, None)
             }
             SendPollState::SendComplete => {
@@ -275,7 +279,9 @@ where
             RecvPollState::Registered => {
                 // Since the channel wakes up all waiters and moves their states
                 // to unregistered there can't be any value in the channel in
-                // this state.
+                // this state. However the caller might have passed a different `Waker`.
+                // In this case we need to update it.
+                update_waker_ref(&mut wait_node.task, cx);
                 Poll::Pending
             }
         }

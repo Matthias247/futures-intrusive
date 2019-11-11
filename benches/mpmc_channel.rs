@@ -153,7 +153,7 @@ fn futchan_bounded_variable_tx_single_thread(producers: usize) {
                     tx.send(4).await.unwrap();
                 }
             }
-                .boxed()
+            .boxed()
         }));
 
         drop(tx);
@@ -184,7 +184,7 @@ fn tokiochan_bounded_variable_tx_single_thread(producers: usize) {
                     tx.send(4).await.unwrap();
                 }
             }
-                .boxed()
+            .boxed()
         }));
 
         drop(tx);

@@ -199,6 +199,33 @@ macro_rules! gen_timer_tests {
 
                 assert_eq!(count, 4);
             }
+
+            #[test]
+            fn poll_from_multiple_executors() {
+                static TEST_CLOCK: MockClock = MockClock::new();
+                TEST_CLOCK.set_time(2300);
+
+                let timer = $timer_type::new(&TEST_CLOCK);
+
+                let (waker_1, count_1) = new_count_waker();
+                let (waker_2, count_2) = new_count_waker();
+                let cx_1 = &mut Context::from_waker(&waker_1);
+                let cx_2 = &mut Context::from_waker(&waker_2);
+
+                let fut = timer.deadline(2400);
+                pin_mut!(fut);
+
+                assert!(fut.as_mut().poll(cx_1).is_pending());
+                assert!(fut.as_mut().poll(cx_2).is_pending());
+
+                TEST_CLOCK.set_time(2700);
+                timer.check_expirations();
+                assert_eq!(count_1, 0);
+                assert_eq!(count_2, 1);
+
+                assert!(fut.as_mut().poll(cx_2).is_ready());
+                assert!(fut.as_mut().is_terminated());
+            }
         }
     };
 }

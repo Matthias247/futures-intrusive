@@ -1,13 +1,20 @@
 //! An asynchronously awaitable mutex for synchronization between concurrently
 //! executing futures.
 
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
-use crate::NoopLock;
-use core::cell::UnsafeCell;
-use core::ops::{Deref, DerefMut};
-use core::pin::Pin;
-use futures_core::future::{FusedFuture, Future};
-use futures_core::task::{Context, Poll, Waker};
+use crate::{
+    intrusive_singly_linked_list::{LinkedList, ListNode},
+    utils::update_waker_ref,
+    NoopLock,
+};
+use core::{
+    cell::UnsafeCell,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+};
+use futures_core::{
+    future::{FusedFuture, Future},
+    task::{Context, Poll, Waker},
+};
 use lock_api::{Mutex as LockApiMutex, RawMutex};
 
 /// Tracks how the future had interacted with the mutex
@@ -144,7 +151,9 @@ impl MutexState {
                 // The MutexLockFuture is already in the queue.
                 if self.is_fair {
                     // The task needs to wait until it gets notified in order to
-                    // maintain the ordering.
+                    // maintain the ordering. However the caller might have
+                    // passed a different `Waker`. In this case we need to update it.
+                    update_waker_ref(&mut wait_node.task, cx);
                     Poll::Pending
                 } else {
                     // For throughput improvement purposes, grab the lock immediately
@@ -157,6 +166,9 @@ impl MutexState {
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
                     } else {
+                        // The caller might have passed a different `Waker`.
+                        // In this case we need to update it.
+                        update_waker_ref(&mut wait_node.task, cx);
                         Poll::Pending
                     }
                 }

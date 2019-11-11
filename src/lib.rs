@@ -228,3 +228,5 @@ mod intrusive_singly_linked_list;
 pub mod channel;
 pub mod sync;
 pub mod timer;
+
+mod utils;

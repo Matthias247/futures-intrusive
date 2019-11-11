@@ -756,6 +756,53 @@ macro_rules! gen_mpmc_tests {
             }
 
             #[test]
+            fn poll_from_multiple_executors_on_receive() {
+                let (waker_1, count_1) = new_count_waker();
+                let (waker_2, count_2) = new_count_waker();
+                let channel = ChannelType::new();
+
+                let cx_1 = &mut Context::from_waker(&waker_1);
+                let cx_2 = &mut Context::from_waker(&waker_2);
+
+                let fut = channel.receive();
+                pin_mut!(fut);
+                assert!(fut.as_mut().poll(cx_1).is_pending());
+                assert!(fut.as_mut().poll(cx_2).is_pending());
+
+                assert_send(cx_1, &channel, 99);
+                assert_eq!(count_1, 0);
+                assert_eq!(count_2, 1);
+
+                assert_receive_done(cx_2, &mut fut, Some(99));
+            }
+
+            #[test]
+            fn poll_from_multiple_executors_on_send() {
+                let (waker_1, count_1) = new_count_waker();
+                let (waker_2, count_2) = new_count_waker();
+                let cx_1 = &mut Context::from_waker(&waker_1);
+                let cx_2 = &mut Context::from_waker(&waker_2);
+
+                let channel = ChannelType::new();
+
+                // Fill the channel, so that send blocks
+                assert_send(cx_1, &channel, 1);
+                assert_send(cx_1, &channel, 2);
+                assert_send(cx_1, &channel, 3);
+
+                let fut = channel.send(4);
+                pin_mut!(fut);
+                assert!(fut.as_mut().poll(cx_1).is_pending());
+                assert!(fut.as_mut().poll(cx_2).is_pending());
+
+                assert_receive!(cx_2, &channel, Some(1));
+                assert_eq!(count_2, 1);
+                assert_eq!(count_1, 0);
+
+                assert_send_done(cx_2, &mut fut, Ok(()));
+            }
+
+            #[test]
             fn buffered_starved_recv_does_not_deadlock() {
                 let channel = ChannelType::new();
                 let (waker, count) = new_count_waker();

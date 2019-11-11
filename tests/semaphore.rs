@@ -532,6 +532,33 @@ macro_rules! gen_semaphore_tests {
                     Poll::Ready(_guard) => {},
                 };
             }
+
+            #[test]
+            fn poll_from_multiple_executors() {
+                for is_fair in &[true, false] {
+                    let (waker_1, count_1) = new_count_waker();
+                    let (waker_2, count_2) = new_count_waker();
+                    let sem = $semaphore_type::new(*is_fair, 3);
+
+                    // Acquire the semaphore
+                    let guard = sem.try_acquire(3).unwrap();
+
+                    let fut = sem.acquire(1);
+                    pin_mut!(fut);
+
+                    let cx_1 = &mut Context::from_waker(&waker_1);
+                    let cx_2 = &mut Context::from_waker(&waker_2);
+                    assert!(fut.as_mut().poll(cx_1).is_pending());
+                    assert!(fut.as_mut().poll(cx_2).is_pending());
+
+                    drop(guard);
+                    assert_eq!(count_1, 0);
+                    assert_eq!(count_2, 1);
+
+                    assert!(fut.as_mut().poll(cx_2).is_ready());
+                    assert!(fut.as_mut().is_terminated());
+                }
+            }
         }
     }
 }

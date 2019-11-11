@@ -1,11 +1,16 @@
 //! An asynchronously awaitable state broadcasting channel
 
 use super::ChannelSendError;
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
-use crate::NoopLock;
+use crate::{
+    intrusive_singly_linked_list::{LinkedList, ListNode},
+    utils::update_waker_ref,
+    NoopLock,
+};
 use core::pin::Pin;
-use futures_core::future::{FusedFuture, Future};
-use futures_core::task::{Context, Poll, Waker};
+use futures_core::{
+    future::{FusedFuture, Future},
+    task::{Context, Poll, Waker},
+};
 use lock_api::{Mutex, RawMutex};
 use std::marker::PhantomData;
 
@@ -281,8 +286,11 @@ where
                 }
             }
             RecvPollState::Registered => {
-                // Since the channel wakes up all waiters and moves their states to unregistered
-                // there can't be any value in the channel in this state.
+                // Since the channel wakes up all waiters and moves their states
+                // to unregistered there can't be any value in the channel in this state.
+                // However the caller might have passed a different `Waker`.
+                // In this case we need to update it.
+                update_waker_ref(&mut wait_node.task, cx);
                 Poll::Pending
             }
         }

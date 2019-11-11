@@ -1,12 +1,16 @@
 //! An asynchronously awaitable timer
 
 use super::clock::Clock;
-use crate::intrusive_double_linked_list::{LinkedList, ListNode};
-use crate::NoopLock;
-use core::pin::Pin;
-use core::time::Duration;
-use futures_core::future::{FusedFuture, Future};
-use futures_core::task::{Context, Poll, Waker};
+use crate::{
+    intrusive_double_linked_list::{LinkedList, ListNode},
+    utils::update_waker_ref,
+    NoopLock,
+};
+use core::{pin::Pin, time::Duration};
+use futures_core::{
+    future::{FusedFuture, Future},
+    task::{Context, Poll, Waker},
+};
 use lock_api::{Mutex, RawMutex};
 
 /// Tracks how the future had interacted with the timer
@@ -102,7 +106,10 @@ impl TimerState {
             }
             PollState::Registered => {
                 // Since the timer wakes up all waiters and moves their states to
-                // Expired when the timer expired, it can't be expired here yet
+                // Expired when the timer expired, it can't be expired here yet.
+                // However the caller might have passed a different `Waker`.
+                // In this case we need to update it.
+                update_waker_ref(&mut wait_node.task, cx);
                 Poll::Pending
             }
             PollState::Expired => Poll::Ready(()),

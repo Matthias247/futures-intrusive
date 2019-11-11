@@ -401,6 +401,35 @@ macro_rules! gen_mutex_tests {
                     Poll::Ready(_guard) => {}
                 };
             }
+
+            #[test]
+            fn poll_from_multiple_executors() {
+                for is_fair in &[true, false] {
+                    let (waker_1, count_1) = new_count_waker();
+                    let (waker_2, count_2) = new_count_waker();
+                    let mtx = $mutex_type::new(5, *is_fair);
+
+                    // Lock the mutex
+                    let mut guard1 = mtx.try_lock().unwrap();
+                    *guard1 = 27;
+
+                    let cx_1 = &mut Context::from_waker(&waker_1);
+                    let cx_2 = &mut Context::from_waker(&waker_2);
+
+                    let fut = mtx.lock();
+                    pin_mut!(fut);
+
+                    assert!(fut.as_mut().poll(cx_1).is_pending());
+                    assert!(fut.as_mut().poll(cx_2).is_pending());
+
+                    drop(guard1);
+                    assert_eq!(count_1, 0);
+                    assert_eq!(count_2, 1);
+
+                    assert!(fut.as_mut().poll(cx_2).is_ready());
+                    assert!(fut.as_mut().is_terminated());
+                }
+            }
         }
     };
 }
