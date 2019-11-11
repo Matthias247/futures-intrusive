@@ -303,7 +303,7 @@ mod if_std {
 
     // Export a thread-safe version using parking_lot::RawMutex
 
-    /// A [`GenericManualResetEvent`] implementation backehttp://nico.ms/sm31485778d by [`parking_lot`].
+    /// A [`GenericManualResetEvent`] implementation backed by [`parking_lot`].
     pub type ManualResetEvent = GenericManualResetEvent<parking_lot::RawMutex>;
     /// A [`GenericWaitForEventFuture`] for [`ManualResetEvent`].
     pub type WaitForEventFuture<'a> =
