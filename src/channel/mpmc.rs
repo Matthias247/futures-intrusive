@@ -2,7 +2,7 @@
 
 use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
 use crate::{
-    buffer::{ArrayRingBuf, RingBuf},
+    buffer::{ArrayBuf, RingBuf},
     NoopLock,
 };
 use core::marker::PhantomData;
@@ -440,7 +440,7 @@ where
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericChannel`] implementation which is not thread-safe.
-pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayRingBuf<T, A>>;
+pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
 
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
 pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
@@ -450,7 +450,7 @@ mod if_std {
     use super::*;
     // Export a thread-safe version using parking_lot::RawMutex
 
-    // TODO: We might also want to bind Channel to GenericChannel<..., HeapRingBuf>,
+    // TODO: We might also want to bind Channel to GenericChannel<..., FixedHeapBuf>,
     // which performs less type-churn.
     // However since we can't bind LocalChannel to that too due to no-std compatibility,
     // this would to introduce some inconsistency between those types.
@@ -461,7 +461,7 @@ mod if_std {
 
     /// A [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type Channel<T, A> =
-        GenericChannel<parking_lot::RawMutex, T, ArrayRingBuf<T, A>>;
+        GenericChannel<parking_lot::RawMutex, T, ArrayBuf<T, A>>;
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
@@ -483,7 +483,7 @@ mod if_alloc {
     /// parameter.
     pub mod shared {
         use super::*;
-        use crate::buffer::HeapRingBuf;
+        use crate::buffer::FixedHeapBuf;
         use crate::channel::shared::{ChannelReceiveFuture, ChannelSendFuture};
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -759,24 +759,24 @@ mod if_alloc {
         mod if_std {
             use super::*;
 
-            use crate::buffer::GrowingRingBuf;
+            use crate::buffer::GrowingHeapBuf;
 
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
             ///
-            /// Uses a `HeapRingBuf` which allocates the capacity ahead of time.
-            /// Refer to [`HeapRingBuf`] for more information.
+            /// Uses a `FixedHeapBuf` which allocates the capacity ahead of time.
+            /// Refer to [`FixedHeapBuf`] for more information.
             ///
-            /// [`HeapRingBuf`]: ../../buffer/struct.HeapRingBuf.html
+            /// [`FixedHeapBuf`]: ../../buffer/struct.FixedHeapBuf.html
             pub type Sender<T> =
-                GenericSender<parking_lot::RawMutex, T, HeapRingBuf<T>>;
+                GenericSender<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             ///
-            /// Uses a `HeapRingBuf` which allocates the capacity ahead of time.
-            /// Refer to [`HeapRingBuf`] for more information.
+            /// Uses a `FixedHeapBuf` which allocates the capacity ahead of time.
+            /// Refer to [`FixedHeapBuf`] for more information.
             ///
-            /// [`HeapRingBuf`]: ../../buffer/struct.HeapRingBuf.html
+            /// [`FixedHeapBuf`]: ../../buffer/struct.FixedHeapBuf.html
             pub type Receiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, HeapRingBuf<T>>;
+                GenericReceiver<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
 
             /// Creates a new channel.
             ///
@@ -785,17 +785,17 @@ mod if_alloc {
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, HeapRingBuf<T>>(
+                generic_channel::<parking_lot::RawMutex, T, FixedHeapBuf<T>>(
                     capacity,
                 )
             }
 
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
             pub type UnbufferedSender<T> =
-                GenericSender<parking_lot::RawMutex, T, HeapRingBuf<T>>;
+                GenericSender<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             pub type UnbufferedReceiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, HeapRingBuf<T>>;
+                GenericReceiver<parking_lot::RawMutex, T, FixedHeapBuf<T>>;
 
             /// Creates a new unbuffered channel.
             ///
@@ -804,25 +804,25 @@ mod if_alloc {
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, HeapRingBuf<T>>(0)
+                generic_channel::<parking_lot::RawMutex, T, FixedHeapBuf<T>>(0)
             }
 
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
             ///
-            /// Uses a `GrowingRingBuf` whose capacity grows dynamically up to
-            /// the given limit. Refer to [`GrowingRingBuf`] for more information.
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
             ///
-            /// [`GrowingRingBuf`]: ../../buffer/struct.GrowingRingBuf.html
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
             pub type GrowingSender<T> =
-                GenericSender<parking_lot::RawMutex, T, GrowingRingBuf<T>>;
+                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             ///
-            /// Uses a `GrowingRingBuf` whose capacity grows dynamically up to
-            /// the given limit. Refer to [`GrowingRingBuf`] for more information.
+            /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
+            /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
             ///
-            /// [`GrowingRingBuf`]: ../../buffer/struct.GrowingRingBuf.html
+            /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
             pub type GrowingReceiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, GrowingRingBuf<T>>;
+                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
 
             /// Creates a new growing channel.
             ///
@@ -833,7 +833,7 @@ mod if_alloc {
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, GrowingRingBuf<T>>(
+                generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
                     capacity,
                 )
             }

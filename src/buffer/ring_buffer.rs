@@ -42,12 +42,12 @@ pub trait RingBuf {
 /// the following code can be utilized:
 ///
 /// ```
-/// use futures_intrusive::buffer::{ArrayRingBuf, RingBuf};
+/// use futures_intrusive::buffer::{ArrayBuf, RingBuf};
 ///
-/// type Buffer5 = ArrayRingBuf<i32, [i32; 5]>;
+/// type Buffer5 = ArrayBuf<i32, [i32; 5]>;
 /// let buffer = Buffer5::new();
 /// ```
-pub struct ArrayRingBuf<T, A>
+pub struct ArrayBuf<T, A>
 where
     A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
 {
@@ -58,7 +58,7 @@ where
     _phantom: PhantomData<T>,
 }
 
-impl<T, A> core::fmt::Debug for ArrayRingBuf<T, A>
+impl<T, A> core::fmt::Debug for ArrayBuf<T, A>
 where
     A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
 {
@@ -66,14 +66,14 @@ where
         &self,
         f: &mut core::fmt::Formatter,
     ) -> Result<(), core::fmt::Error> {
-        f.debug_struct("ArrayRingBuf")
+        f.debug_struct("ArrayBuf")
             .field("size", &self.size)
             .field("cap", &self.capacity())
             .finish()
     }
 }
 
-impl<T, A> ArrayRingBuf<T, A>
+impl<T, A> ArrayBuf<T, A>
 where
     A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
 {
@@ -85,14 +85,14 @@ where
     }
 }
 
-impl<T, A> RingBuf for ArrayRingBuf<T, A>
+impl<T, A> RingBuf for ArrayBuf<T, A>
 where
     A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
 {
     type Item = T;
 
     fn new() -> Self {
-        ArrayRingBuf {
+        ArrayBuf {
             buffer: MaybeUninit::uninit(),
             send_idx: 0,
             recv_idx: 0,
@@ -150,7 +150,7 @@ where
     }
 }
 
-impl<T, A> Drop for ArrayRingBuf<T, A>
+impl<T, A> Drop for ArrayBuf<T, A>
 where
     A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
 {
@@ -176,39 +176,39 @@ mod if_std {
 
     /// A Ring Buffer which stores all items on the heap.
     ///
-    /// The `HeapRingBuf` will allocates its capacity ahead of time. This is good
+    /// The `FixedHeapBuf` will allocate its capacity ahead of time. This is good
     /// fit when you have a constant latency between two components.
-    pub struct HeapRingBuf<T> {
+    pub struct FixedHeapBuf<T> {
         buffer: VecDeque<T>,
         /// The capacity is stored extra, since VecDeque can allocate space for
         /// more elements than specified.
         cap: usize,
     }
 
-    impl<T> core::fmt::Debug for HeapRingBuf<T> {
+    impl<T> core::fmt::Debug for FixedHeapBuf<T> {
         fn fmt(
             &self,
             f: &mut core::fmt::Formatter,
         ) -> Result<(), core::fmt::Error> {
-            f.debug_struct("HeapRingBuf")
+            f.debug_struct("FixedHeapBuf")
                 .field("size", &self.buffer.len())
                 .field("cap", &self.cap)
                 .finish()
         }
     }
 
-    impl<T> RingBuf for HeapRingBuf<T> {
+    impl<T> RingBuf for FixedHeapBuf<T> {
         type Item = T;
 
         fn new() -> Self {
-            HeapRingBuf {
+            FixedHeapBuf {
                 buffer: VecDeque::new(),
                 cap: 0,
             }
         }
 
         fn with_capacity(cap: usize) -> Self {
-            HeapRingBuf {
+            FixedHeapBuf {
                 buffer: VecDeque::with_capacity(cap),
                 cap,
             }
@@ -244,41 +244,41 @@ mod if_std {
 
     /// A Ring Buffer which stores all items on the heap but grows dynamically.
     ///
-    /// A `GrowingRingBuf` does not allocate the capacity ahead of time, as
-    /// opposed to the `HeapRingBuf`. This makes it a good fit when you have
+    /// A `GrowingHeapBuf` does not allocate the capacity ahead of time, as
+    /// opposed to the `FixedHeapBuf`. This makes it a good fit when you have
     /// unpredictable latency between two components, when you want to
     /// amortize your allocation costs or when you are using an external
     /// back-pressure mechanism.
-    pub struct GrowingRingBuf<T> {
+    pub struct GrowingHeapBuf<T> {
         buffer: VecDeque<T>,
         /// The maximum number of elements in the buffer.
         limit: usize,
     }
 
-    impl<T> core::fmt::Debug for GrowingRingBuf<T> {
+    impl<T> core::fmt::Debug for GrowingHeapBuf<T> {
         fn fmt(
             &self,
             f: &mut core::fmt::Formatter,
         ) -> Result<(), core::fmt::Error> {
-            f.debug_struct("GrowingRingBuf")
+            f.debug_struct("GrowingHeapBuf")
                 .field("size", &self.buffer.len())
                 .field("limit", &self.limit)
                 .finish()
         }
     }
 
-    impl<T> RingBuf for GrowingRingBuf<T> {
+    impl<T> RingBuf for GrowingHeapBuf<T> {
         type Item = T;
 
         fn new() -> Self {
-            Self {
+            GrowingHeapBuf {
                 buffer: VecDeque::new(),
                 limit: 0,
             }
         }
 
         fn with_capacity(limit: usize) -> Self {
-            Self {
+            GrowingHeapBuf {
                 buffer: VecDeque::new(),
                 limit,
             }
@@ -320,7 +320,7 @@ pub use if_std::*;
 #[cfg(feature = "std")]
 mod tests {
     use super::*;
-    use crate::buffer::ring_buffer::if_std::HeapRingBuf;
+    use crate::buffer::ring_buffer::if_std::FixedHeapBuf;
 
     fn test_ring_buf<Buf: RingBuf<Item = u32>>(mut buf: Buf) {
         assert_eq!(5, buf.capacity());
@@ -361,19 +361,19 @@ mod tests {
 
     #[test]
     fn test_array_ring_buf() {
-        let buf = ArrayRingBuf::<u32, [u32; 5]>::new();
+        let buf = ArrayBuf::<u32, [u32; 5]>::new();
         test_ring_buf(buf);
     }
 
     #[test]
     fn test_heap_ring_buf() {
-        let buf = HeapRingBuf::<u32>::with_capacity(5);
+        let buf = FixedHeapBuf::<u32>::with_capacity(5);
         test_ring_buf(buf);
     }
 
     #[test]
     fn test_growing_ring_buf() {
-        let buf = GrowingRingBuf::<u32>::with_capacity(5);
+        let buf = GrowingHeapBuf::<u32>::with_capacity(5);
         test_ring_buf(buf);
     }
 }
