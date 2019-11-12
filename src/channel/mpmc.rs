@@ -201,16 +201,21 @@ where
 
             last_waiter.state = SendPollState::SendComplete;
 
-            if let Some(ref handle) = &last_waiter.task {
-                handle.wake_by_ref();
+            if let Some(task) = last_waiter.task.take() {
+                task.wake();
             }
         }
     }
 
-    /// This path should be only used for 0 capacity queues.
-    /// Since the list is not empty, a value is available.
-    /// Extract it from the sender in order to return it
-    fn take_from_sender(&mut self) -> T {
+    /// Tries to extract a value from the sending waiter which has been waiting
+    /// longest on the send operation to complete.
+    fn try_take_value_from_sender(&mut self) -> Option<T> {
+        if self.send_waiters.is_empty() {
+            return None;
+        }
+        // This path should be only used for 0 capacity queues.
+        // Since the list is not empty, a value is available.
+        // Extract it from the sender in order to return it
         debug_assert_eq!(0, self.buffer.capacity());
         let last_sender = self.send_waiters.remove_last();
         debug_assert!(!last_sender.is_null());
@@ -222,11 +227,11 @@ where
         last_sender.state = SendPollState::SendComplete;
 
         // Wakeup the waiter
-        if let Some(ref task) = &last_sender.task {
-            task.wake_by_ref();
+        if let Some(task) = last_sender.task.take() {
+            task.wake();
         }
 
-        val
+        Some(val)
     }
 
     /// Tries to receive a value from the channel without waiting.
@@ -239,9 +244,7 @@ where
             unsafe { self.try_copy_value_from_last_waiter() };
 
             Ok(val)
-        } else if !self.send_waiters.is_empty() {
-            let val = self.take_from_sender();
-
+        } else if let Some(val) = self.try_take_value_from_sender() {
             Ok(val)
         } else if self.is_closed {
             Err(TryReceiveError::Closed)
