@@ -4,7 +4,7 @@
 //! asynchronous tasks.
 
 mod error;
-pub use self::error::ChannelSendError;
+pub use self::error::{ChannelSendError, TryReceiveError, TrySendError};
 
 mod channel_future;
 use channel_future::{

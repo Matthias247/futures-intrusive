@@ -12,7 +12,7 @@ use lock_api::{Mutex, RawMutex};
 use super::{
     ChannelReceiveAccess, ChannelReceiveFuture, ChannelSendAccess,
     ChannelSendFuture, RecvPollState, RecvWaitQueueEntry, SendPollState,
-    SendWaitQueueEntry,
+    SendWaitQueueEntry, TryReceiveError, TrySendError,
 };
 
 fn wake_recv_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
@@ -107,13 +107,34 @@ where
         wake_send_waiters(send_waiters);
     }
 
+    /// Attempt to send a value without blocking.
+    fn try_send(&mut self, value: T) -> Result<(), TrySendError<T>> {
+        debug_assert!(
+            self.buffer.capacity() > 0,
+            "try_send is not supported for unbuffered channels"
+        );
+
+        if self.is_closed {
+            Err(TrySendError::Closed(value))
+        } else if self.buffer.can_push() {
+            self.buffer.push(value);
+
+            // Wakeup the oldest receive waiter
+            wakeup_last_receive_waiter(&mut self.receive_waiters);
+
+            Ok(())
+        } else {
+            Err(TrySendError::Full(value))
+        }
+    }
+
     /// Tries to send a value to the channel.
     /// If the value isn't available yet, the ChannelSendFuture gets added to the
     /// wait queue at the channel, and will be signalled once ready.
     /// If the channels is already closed, the value to send is returned.
     /// This function is only safe as long as the `wait_node`s address is guaranteed
     /// to be stable until it gets removed from the queue.
-    unsafe fn try_send(
+    unsafe fn send_or_register(
         &mut self,
         wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
         cx: &mut Context<'_>,
@@ -182,12 +203,55 @@ where
         }
     }
 
+    /// This path should be only used for 0 capacity queues.
+    /// Since the list is not empty, a value is available.
+    /// Extract it from the sender in order to return it
+    fn take_from_sender(&mut self) -> T {
+        debug_assert_eq!(0, self.buffer.capacity());
+        let last_sender = self.send_waiters.remove_last();
+        debug_assert!(!last_sender.is_null());
+
+        // Safety: The sender can't be null, since we only add valid
+        // senders to the queue
+        let last_sender = unsafe { &mut (*last_sender) };
+        let val = last_sender.value.take().expect("Value must be available");
+        last_sender.state = SendPollState::SendComplete;
+
+        // Wakeup the waiter
+        if let Some(ref task) = &last_sender.task {
+            task.wake_by_ref();
+        }
+
+        val
+    }
+
+    /// Tries to receive a value from the channel without blocking.
+    fn try_receive(&mut self) -> Result<T, TryReceiveError> {
+        if !self.buffer.is_empty() {
+            let val = self.buffer.pop();
+
+            // Since this means a space in the buffer had been freed,
+            // try to copy a value from a potential waiter into the channel.
+            unsafe { self.try_copy_value_from_last_waiter() };
+
+            Ok(val)
+        } else if !self.send_waiters.is_empty() {
+            let val = self.take_from_sender();
+
+            Ok(val)
+        } else if self.is_closed {
+            Err(TryReceiveError::Closed)
+        } else {
+            Err(TryReceiveError::Empty)
+        }
+    }
+
     /// Tries to read the value from the channel.
     /// If the value isn't available yet, the ChannelReceiveFuture gets added to the
     /// wait queue at the channel, and will be signalled once ready.
     /// This function is only safe as long as the `wait_node`s address is guaranteed
     /// to be stable until it gets removed from the queue.
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &mut self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
@@ -196,45 +260,16 @@ where
             RecvPollState::Unregistered | RecvPollState::Notified => {
                 wait_node.state = RecvPollState::Unregistered;
 
-                if !self.buffer.is_empty() {
-                    // A value is available - grab it.
-                    let val = self.buffer.pop();
-
-                    // Since this means a space in the buffer had been freed,
-                    // try to copy a value from a potential waiter into the channel.
-                    self.try_copy_value_from_last_waiter();
-                    Poll::Ready(Some(val))
-                } else if !self.send_waiters.is_empty() {
-                    // This path should be only used for 0 capacity queues.
-                    // Since the list is not empty, a value is available.
-                    // Extract it from the sender in order to return it
-                    assert_eq!(0, self.buffer.capacity());
-                    let last_sender = self.send_waiters.remove_last();
-                    assert!(!last_sender.is_null());
-
-                    // Safety: The sender can't be null, since we only add valid
-                    // senders to the queue
-                    let last_sender = &mut (*last_sender);
-                    let val = last_sender
-                        .value
-                        .take()
-                        .expect("Value must be available");
-                    last_sender.state = SendPollState::SendComplete;
-
-                    // Wakeup the waiter
-                    if let Some(ref task) = &last_sender.task {
-                        task.wake_by_ref();
+                match self.try_receive() {
+                    Ok(val) => Poll::Ready(Some(val)),
+                    Err(TryReceiveError::Closed) => Poll::Ready(None),
+                    Err(TryReceiveError::Empty) => {
+                        // Added the task to the wait queue
+                        wait_node.task = Some(cx.waker().clone());
+                        wait_node.state = RecvPollState::Registered;
+                        self.receive_waiters.add_front(wait_node);
+                        Poll::Pending
                     }
-
-                    Poll::Ready(Some(val))
-                } else if self.is_closed {
-                    Poll::Ready(None)
-                } else {
-                    // Added the task to the wait queue
-                    wait_node.task = Some(cx.waker().clone());
-                    wait_node.state = RecvPollState::Registered;
-                    self.receive_waiters.add_front(wait_node);
-                    Poll::Pending
                 }
             }
             RecvPollState::Registered => {
@@ -376,6 +411,14 @@ where
         }
     }
 
+    /// Attempt to send the value without blocking.
+    ///
+    /// This operation is not supported for unbuffered channels and will
+    /// panic if the capacity of the `RingBuf` is zero.
+    pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
+        self.inner.lock().try_send(value)
+    }
+
     /// Returns a future that gets fulfilled when a value is written to the channel.
     /// If the channels gets closed, the future will resolve to `None`.
     pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
@@ -384,6 +427,11 @@ where
             wait_node: ListNode::new(RecvWaitQueueEntry::new()),
             _phantom: PhantomData,
         }
+    }
+
+    /// Attempt to receive a value of the channel without blocking.
+    pub fn try_receive(&self) -> Result<T, TryReceiveError> {
+        self.inner.lock().try_receive()
     }
 
     /// Closes the channel.
@@ -400,12 +448,12 @@ impl<MutexType: RawMutex, T, A> ChannelSendAccess<T>
 where
     A: RingBuf<Item = T>,
 {
-    unsafe fn try_send(
+    unsafe fn send_or_register(
         &self,
         wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
         cx: &mut Context<'_>,
     ) -> (Poll<()>, Option<T>) {
-        self.inner.lock().try_send(wait_node, cx)
+        self.inner.lock().send_or_register(wait_node, cx)
     }
 
     fn remove_send_waiter(
@@ -421,12 +469,12 @@ impl<MutexType: RawMutex, T, A> ChannelReceiveAccess<T>
 where
     A: RingBuf<Item = T>,
 {
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<T>> {
-        self.inner.lock().try_receive(wait_node, cx)
+        self.inner.lock().receive_or_register(wait_node, cx)
     }
 
     fn remove_receive_waiter(
@@ -509,12 +557,12 @@ mod if_alloc {
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
         {
-            unsafe fn try_receive(
+            unsafe fn receive_or_register(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
             ) -> Poll<Option<T>> {
-                self.channel.try_receive(wait_node, cx)
+                self.channel.receive_or_register(wait_node, cx)
             }
 
             fn remove_receive_waiter(
@@ -533,12 +581,12 @@ mod if_alloc {
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
         {
-            unsafe fn try_send(
+            unsafe fn send_or_register(
                 &self,
                 wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
                 cx: &mut Context<'_>,
             ) -> (Poll<()>, Option<T>) {
-                self.channel.try_send(wait_node, cx)
+                self.channel.send_or_register(wait_node, cx)
             }
 
             fn remove_send_waiter(
@@ -720,6 +768,14 @@ mod if_alloc {
                 }
             }
 
+            /// Attempt to send the value without blocking.
+            ///
+            /// This operation is not supported for unbuffered channels and will
+            /// panic if the capacity of the `RingBuf` is zero.
+            pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
+                self.inner.channel.try_send(value)
+            }
+
             /// Closes the channel.
             /// All pending future send attempts will fail.
             /// Receive attempts will continue to succeed as long as there are items
@@ -742,6 +798,11 @@ mod if_alloc {
                     wait_node: ListNode::new(RecvWaitQueueEntry::new()),
                     _phantom: PhantomData,
                 }
+            }
+
+            /// Attempt to receive form the channel without blocking.
+            pub fn try_receive(&self) -> Result<T, TryReceiveError> {
+                self.inner.channel.try_receive()
             }
 
             /// Closes the channel.

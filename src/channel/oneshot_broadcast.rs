@@ -224,7 +224,7 @@ impl<MutexType: RawMutex, T> ChannelReceiveAccess<T>
 where
     T: Clone,
 {
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
@@ -287,12 +287,12 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone,
         {
-            unsafe fn try_receive(
+            unsafe fn receive_or_register(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
             ) -> Poll<Option<T>> {
-                self.channel.try_receive(wait_node, cx)
+                self.channel.receive_or_register(wait_node, cx)
             }
 
             fn remove_receive_waiter(

@@ -168,6 +168,91 @@ macro_rules! gen_mpmc_tests {
             }
 
             #[test]
+            fn unbuffered_try_receive() {
+                let channel = UnbufferedChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                let fut = channel.send(5);
+                pin_mut!(fut);
+                assert!(fut.as_mut().poll(cx).is_pending());
+                assert_eq!(count, 0);
+
+                channel.try_receive().unwrap();
+
+                assert_eq!(count, 1);
+                assert_send_done(cx, &mut fut, Ok(()));
+            }
+
+            #[test]
+            fn try_send_recv_smoke_test() {
+                let channel = ChannelType::with_capacity(3);
+
+                for _ in 0..3 {
+                    channel.try_send(5).unwrap();
+                }
+
+                channel.try_send(5).unwrap_err();
+
+                for _ in 0..3 {
+                    channel.try_receive().unwrap();
+                }
+
+                let err = channel.try_receive().unwrap_err();
+                assert!(err.is_empty());
+            }
+
+            #[test]
+            fn try_send_full_channel() {
+                let channel = ChannelType::with_capacity(3);
+
+                for _ in 0..3 {
+                    channel.try_send(5).unwrap();
+                }
+
+                let err = channel.try_send(5).unwrap_err();
+                assert!(err.is_full());
+            }
+
+            #[test]
+            fn try_send_on_closed_channel() {
+                let channel = ChannelType::new();
+
+                channel.close();
+
+                let err = channel.try_send(5).unwrap_err();
+                assert!(err.is_closed());
+            }
+
+            #[test]
+            fn try_receive_empty_channel() {
+                let channel = ChannelType::with_capacity(3);
+
+                let err = channel.try_receive().unwrap_err();
+                assert!(err.is_empty());
+            }
+
+            #[test]
+            fn try_recv_on_closed_channel() {
+                let channel = ChannelType::new();
+
+                channel.try_send(5).unwrap();
+
+                channel.close();
+
+                channel.try_receive().unwrap();
+                let err = channel.try_receive().unwrap_err();
+                assert!(err.is_closed());
+            }
+
+            #[test]
+            #[should_panic]
+            fn try_send_unbuffered_panics() {
+                let channel = UnbufferedChannelType::new();
+                let _ = channel.try_send(5);
+            }
+
+            #[test]
             fn buffered_close_unblocks_send() {
                 let channel = ChannelType::new();
                 let (waker, count) = new_count_waker();
@@ -669,6 +754,123 @@ macro_rules! gen_mpmc_tests {
                 assert_eq!(1, elem2.strong_count());
                 assert_eq!(1, elem3.strong_count());
             }
+
+            #[test]
+            fn buffered_starved_recv_does_not_deadlock() {
+                let channel = ChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                // Create enough futures to starve the permits.
+                let recv_fut1 = channel.receive();
+                let recv_fut2 = channel.receive();
+                let recv_fut3 = channel.receive();
+                let recv_fut4 = channel.receive();
+                let recv_fut5 = channel.receive();
+                pin_mut!(recv_fut1, recv_fut2, recv_fut3, recv_fut4, recv_fut5);
+                assert!(recv_fut1.as_mut().poll(cx).is_pending());
+                assert!(recv_fut2.as_mut().poll(cx).is_pending());
+                assert!(recv_fut3.as_mut().poll(cx).is_pending());
+                assert!(recv_fut3.as_mut().poll(cx).is_pending());
+                assert!(recv_fut3.as_mut().poll(cx).is_pending());
+                assert_eq!(count, 0);
+
+                // Now send & recv while being starved.
+                assert_send(cx, &channel, 1);
+                assert_eq!(count, 1);
+                assert_send(cx, &channel, 2);
+                assert_eq!(count, 2);
+                assert_send(cx, &channel, 3);
+                assert_eq!(count, 3);
+
+                let send_fut4 = channel.send(4);
+                let send_fut5 = channel.send(5);
+                pin_mut!(send_fut4, send_fut5);
+
+                assert!(send_fut4.as_mut().poll(cx).is_pending());
+                assert!(send_fut5.as_mut().poll(cx).is_pending());
+
+                let recv_fut6 = channel.receive();
+                let recv_fut7 = channel.receive();
+                let recv_fut8 = channel.receive();
+                let recv_fut9 = channel.receive();
+                let recv_fut10 = channel.receive();
+                pin_mut!(
+                    recv_fut6, recv_fut7, recv_fut8, recv_fut9, recv_fut10
+                );
+
+                // Grab the buffered data.
+                assert_receive_done(cx, &mut recv_fut6, Some(1));
+                assert_eq!(count, 4);
+                assert_receive_done(cx, &mut recv_fut7, Some(2));
+                assert_eq!(count, 5);
+                assert_receive_done(cx, &mut recv_fut8, Some(3));
+
+                // Grab the pending data.
+                assert_receive_done(cx, &mut recv_fut9, Some(4));
+                assert_receive_done(cx, &mut recv_fut10, Some(5));
+                assert_eq!(count, 5);
+
+                // Do one last send & recv.
+                let recv_fut11 = channel.receive();
+                pin_mut!(recv_fut11);
+                assert!(recv_fut11.as_mut().poll(cx).is_pending());
+
+                assert_send(cx, &channel, 6);
+                assert_receive_done(cx, &mut recv_fut11, Some(6));
+                assert_eq!(count, 6);
+
+                // Now resolve the starved futures.
+                assert_send(cx, &channel, 7);
+                assert_receive_done(cx, &mut recv_fut1, Some(7));
+                assert_send(cx, &channel, 8);
+                assert_receive_done(cx, &mut recv_fut2, Some(8));
+                assert_send(cx, &channel, 9);
+                assert_receive_done(cx, &mut recv_fut3, Some(9));
+                assert_send(cx, &channel, 10);
+                assert_receive_done(cx, &mut recv_fut4, Some(10));
+                assert_send(cx, &channel, 11);
+                assert_receive_done(cx, &mut recv_fut5, Some(11));
+                assert_eq!(count, 6);
+            }
+
+            #[test]
+            fn unbuffered_starved_send_does_not_deadlock() {
+                let channel = UnbufferedChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                // Create enough futures to starve the permits.
+                let send_fut1 = channel.send(99);
+                let send_fut2 = channel.send(111);
+                let send_fut3 = channel.send(69);
+                pin_mut!(send_fut1, send_fut2, send_fut3);
+                assert!(send_fut1.as_mut().poll(cx).is_pending());
+                assert!(send_fut2.as_mut().poll(cx).is_pending());
+                assert!(send_fut3.as_mut().poll(cx).is_pending());
+
+                assert_eq!(count, 0);
+
+                // Now send & recv while being starved.
+                let recv_fut = channel.receive();
+                pin_mut!(recv_fut);
+                assert_receive_done(cx, &mut recv_fut, Some(99));
+                assert_eq!(count, 1);
+
+                let recv_fut = channel.receive();
+                pin_mut!(recv_fut);
+                assert_receive_done(cx, &mut recv_fut, Some(111));
+                assert_eq!(count, 2);
+
+                let recv_fut = channel.receive();
+                pin_mut!(recv_fut);
+                assert_receive_done(cx, &mut recv_fut, Some(69));
+                assert_eq!(count, 3);
+
+                assert_send_done(cx, &mut send_fut1, Ok(()));
+                assert_send_done(cx, &mut send_fut2, Ok(()));
+                assert_send_done(cx, &mut send_fut3, Ok(()));
+            }
         }
     };
 }
@@ -838,6 +1040,66 @@ mod if_std {
                 }
             }
         }
+    }
+
+    #[test]
+    fn try_send_recv_smoke_test() {
+        let (sender, receiver) = channel::<i32>(3);
+
+        for _ in 0..3 {
+            sender.try_send(5).unwrap();
+        }
+
+        sender.try_send(5).unwrap_err();
+
+        for _ in 0..3 {
+            receiver.try_receive().unwrap();
+        }
+
+        let err = receiver.try_receive().unwrap_err();
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn try_send_full_channel() {
+        let (sender, _receiver) = channel::<i32>(3);
+
+        for _ in 0..3 {
+            sender.try_send(5).unwrap();
+        }
+
+        let err = sender.try_send(5).unwrap_err();
+        assert!(err.is_full());
+    }
+
+    #[test]
+    fn try_send_on_closed_channel() {
+        let (sender, receiver) = channel::<i32>(3);
+
+        receiver.close();
+        let err = sender.try_send(5).unwrap_err();
+        assert!(err.is_closed());
+    }
+
+    #[test]
+    fn try_receive_empty_channel() {
+        let (_sender, receiver) = channel::<i32>(3);
+
+        let err = receiver.try_receive().unwrap_err();
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn try_recv_on_closed_channel() {
+        let (sender, receiver) = channel::<i32>(3);
+
+        sender.try_send(5).unwrap();
+
+        sender.close();
+
+        receiver.try_receive().unwrap();
+        let err = receiver.try_receive().unwrap_err();
+        assert!(err.is_closed());
     }
 
     #[test]
