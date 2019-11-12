@@ -75,9 +75,9 @@ where
     is_closed: bool,
     /// The value which is stored inside the channel
     buffer: A,
-    /// Futures which are blocked on receive
+    /// Futures which are waiting on receive
     receive_waiters: LinkedList<RecvWaitQueueEntry>,
-    /// Futures which are blocked on send
+    /// Futures which are waiting on send
     send_waiters: LinkedList<SendWaitQueueEntry<T>>,
 }
 
@@ -108,7 +108,7 @@ where
         wake_send_waiters(send_waiters);
     }
 
-    /// Attempt to send a value without blocking.
+    /// Attempt to send a value without waiting.
     fn try_send(&mut self, value: T) -> Result<(), TrySendError<T>> {
         debug_assert!(
             self.buffer.capacity() > 0,
@@ -229,7 +229,7 @@ where
         val
     }
 
-    /// Tries to receive a value from the channel without blocking.
+    /// Tries to receive a value from the channel without waiting.
     fn try_receive(&mut self) -> Result<T, TryReceiveError> {
         if !self.buffer.is_empty() {
             let val = self.buffer.pop();
@@ -417,10 +417,16 @@ where
         }
     }
 
-    /// Attempt to send the value without blocking.
+    /// Attempt to send the value without waiting.
     ///
     /// This operation is not supported for unbuffered channels and will
-    /// panic if the capacity of the `RingBuf` is zero.
+    /// panic if the capacity of the `RingBuf` is zero. The reason for this is
+    /// that the actual value transfer on unbuffered channels always happens
+    /// when a receiving task copies the value out of the sending task while it
+    /// is waiting. If the sending task does not wait, the value can not be
+    /// transferred. Since this method can therefore never yield a reasonable
+    /// result with unbuffered channels, it panics in order to highlight the
+    /// use of an inappropriate API.
     pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
         self.inner.lock().try_send(value)
     }
@@ -435,7 +441,7 @@ where
         }
     }
 
-    /// Attempt to receive a value of the channel without blocking.
+    /// Attempt to receive a value of the channel without waiting.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.inner.lock().try_receive()
     }
@@ -774,10 +780,16 @@ mod if_alloc {
                 }
             }
 
-            /// Attempt to send the value without blocking.
+            /// Attempt to send the value without waiting.
             ///
             /// This operation is not supported for unbuffered channels and will
-            /// panic if the capacity of the `RingBuf` is zero.
+            /// panic if the capacity of the `RingBuf` is zero. The reason for this is
+            /// that the actual value transfer on unbuffered channels always happens
+            /// when a receiving task copies the value out of the sending task while it
+            /// is waiting. If the sending task does not wait, the value can not be
+            /// transferred. Since this method can therefore never yield a reasonable
+            /// result with unbuffered channels, it panics in order to highlight the
+            /// use of an inappropriate API.
             pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
                 self.inner.channel.try_send(value)
             }
@@ -806,7 +818,7 @@ mod if_alloc {
                 }
             }
 
-            /// Attempt to receive form the channel without blocking.
+            /// Attempt to receive form the channel without waiting.
             pub fn try_receive(&self) -> Result<T, TryReceiveError> {
                 self.inner.channel.try_receive()
             }

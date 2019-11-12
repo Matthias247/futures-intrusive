@@ -8,17 +8,17 @@
 pub struct ChannelSendError<T>(pub T);
 
 /// The error which is returned when trying to receive from a channel
-/// without blocking fails.
+/// without waiting fails.
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum TryReceiveError {
-    /// The channel is empty.
+    /// The channel is empty. No value is available for reception.
     Empty,
-    /// The channel was closed and is empty.
+    /// The channel had been closed and no more value is available for reception.
     Closed,
 }
 
 impl TryReceiveError {
-    /// Returns whether the error is the `WouldBlock` variant.
+    /// Returns whether the error is the `Empty` variant.
     pub fn is_empty(self) -> bool {
         match self {
             Self::Empty => true,
@@ -36,7 +36,7 @@ impl TryReceiveError {
 }
 
 /// The error which is returned when trying to send on a channel
-/// without blocking fails.
+/// without waiting fails.
 #[derive(PartialEq, Debug)]
 pub enum TrySendError<T> {
     /// The channel is full.
