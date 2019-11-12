@@ -1,11 +1,16 @@
 //! An asynchronously awaitable semaphore for synchronization between concurrently
 //! executing futures.
 
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
-use crate::NoopLock;
+use crate::{
+    intrusive_singly_linked_list::{LinkedList, ListNode},
+    utils::update_waker_ref,
+    NoopLock,
+};
 use core::pin::Pin;
-use futures_core::future::{FusedFuture, Future};
-use futures_core::task::{Context, Poll, Waker};
+use futures_core::{
+    future::{FusedFuture, Future},
+    task::{Context, Poll, Waker},
+};
 use lock_api::{Mutex as LockApiMutex, RawMutex};
 
 /// Tracks how the future had interacted with the semaphore
@@ -180,6 +185,9 @@ impl SemaphoreState {
                 if self.is_fair {
                     // The task needs to wait until it gets notified in order to
                     // maintain the ordering.
+                    // However the caller might have passed a different `Waker`.
+                    // In this case we need to update it.
+                    update_waker_ref(&mut wait_node.task, cx);
                     Poll::Pending
                 } else {
                     // For throughput improvement purposes, check immediately
@@ -192,6 +200,9 @@ impl SemaphoreState {
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
                     } else {
+                        // The caller might have passed a different `Waker`.
+                        // In this case we need to update it.
+                        update_waker_ref(&mut wait_node.task, cx);
                         Poll::Pending
                     }
                 }

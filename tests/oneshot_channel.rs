@@ -218,6 +218,27 @@ macro_rules! gen_oneshot_tests {
 
                 assert_eq!(count, 4)
             }
+
+            #[test]
+            fn poll_from_multiple_executors() {
+                let (waker_1, count_1) = new_count_waker();
+                let (waker_2, count_2) = new_count_waker();
+                let channel = $channel_type::new();
+
+                let cx_1 = &mut Context::from_waker(&waker_1);
+                let cx_2 = &mut Context::from_waker(&waker_2);
+
+                let fut = channel.receive();
+                pin_mut!(fut);
+                assert!(fut.as_mut().poll(cx_1).is_pending());
+                assert!(fut.as_mut().poll(cx_2).is_pending());
+
+                channel.send(99).unwrap();
+                assert_eq!(count_1, 0);
+                assert_eq!(count_2, 1);
+
+                assert_receive_done(cx_2, &mut fut, Some(99));
+            }
         }
     };
 }

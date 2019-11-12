@@ -1,10 +1,15 @@
 //! An asynchronously awaitable event for signalization between tasks
 
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
-use crate::NoopLock;
+use crate::{
+    intrusive_singly_linked_list::{LinkedList, ListNode},
+    utils::update_waker_ref,
+    NoopLock,
+};
 use core::pin::Pin;
-use futures_core::future::{FusedFuture, Future};
-use futures_core::task::{Context, Poll, Waker};
+use futures_core::{
+    future::{FusedFuture, Future},
+    task::{Context, Poll, Waker},
+};
 use lock_api::{Mutex, RawMutex};
 
 /// Tracks how the future had interacted with the event
@@ -115,7 +120,9 @@ impl EventState {
             PollState::Waiting => {
                 // The WaitForEventFuture is already in the queue.
                 // The event can't have been set, since this would change the
-                // waitstate inside the mutex.
+                // waitstate inside the mutex. However the caller might have
+                // passed a different `Waker`. In this case we need to update it.
+                update_waker_ref(&mut wait_node.task, cx);
                 Poll::Pending
             }
             PollState::Done => {
