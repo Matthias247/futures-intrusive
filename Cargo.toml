@@ -41,3 +41,11 @@ harness = false
 [[bench]]
 name = "mutex"
 harness = false
+
+[[example]]
+name = "cancellation"
+required-features = ["std"]
+
+[[example]]
+name = "philosophers"
+required-features = ["std"]

@@ -13,4 +13,5 @@ before_script:
   - (test -x $HOME/.cargo/bin/cargo-cache || cargo install cargo-cache)
 script:
   - cargo fmt --all -- --check
-  - cargo test --all-targets --all-features --no-run
+  - cargo test --no-default-features
+  - cargo test --all-targets --all-features

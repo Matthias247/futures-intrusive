@@ -14,7 +14,7 @@
 ///
 /// ```
 /// use futures_intrusive::buffer::RealArray;
-/// use futures_intrusive::channel::Channel;
+/// use futures_intrusive::channel::LocalChannel;
 ///
 /// struct I32x384Array([i32; 384]);
 /// unsafe impl RealArray<i32> for I32x384Array {
@@ -34,7 +34,7 @@
 /// }
 ///
 /// fn main() {
-///     let channel = Channel::<i32, I32x384Array>::new();
+///     let channel = LocalChannel::<i32, I32x384Array>::new();
 /// }
 ///
 /// ```
