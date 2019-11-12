@@ -12,7 +12,7 @@ use futures_core::{
     task::{Context, Poll, Waker},
 };
 use lock_api::{Mutex, RawMutex};
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// An ID, which allows to differentiate states received from a Channel.
 /// Elements with a bigger state ID (`id > otherId`) have been published more
