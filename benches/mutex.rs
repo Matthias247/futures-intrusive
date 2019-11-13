@@ -99,7 +99,7 @@ macro_rules! benchmarks {
         $mutex_name: literal, $mutex_constructor: expr
     ) => {
         $c.bench(
-            concat!($rt_name, "_", $mutex_name),
+            concat!($rt_name, "/", $mutex_name),
             Benchmark::new("contention", |b| {
                 contention!(
                     b,
@@ -122,13 +122,24 @@ macro_rules! benchmarks {
     };
 }
 
-fn tokio_rt_intrusive_benchmarks(c: &mut Criterion) {
+fn tokio_rt_intrusive_fair_benchmarks(c: &mut Criterion) {
     benchmarks!(
         c,
         "tokio_rt",
         tokio::runtime::Runtime::new().unwrap(),
         tokio::spawn,
-        "futures_intrusive",
+        "futures_intrusive(fair=true)",
+        IntrusiveMutex::new((), true)
+    );
+}
+
+fn tokio_rt_intrusive_unfair_benchmarks(c: &mut Criterion) {
+    benchmarks!(
+        c,
+        "tokio_rt",
+        tokio::runtime::Runtime::new().unwrap(),
+        tokio::spawn,
+        "futures_intrusive(fair=false)",
         IntrusiveMutex::new((), false)
     );
 }
@@ -155,13 +166,24 @@ fn tokio_rt_tokio_benchmarks(c: &mut Criterion) {
     );
 }
 
-fn async_std_intrusive_benchmarks(c: &mut Criterion) {
+fn async_std_intrusive_fair_benchmarks(c: &mut Criterion) {
     benchmarks!(
         c,
         "async_std_rt",
         FakeAsyncStdRuntime {},
         task::spawn,
-        "futures_intrusive",
+        "futures_intrusive(fair=true)",
+        IntrusiveMutex::new((), true)
+    );
+}
+
+fn async_std_intrusive_unfair_benchmarks(c: &mut Criterion) {
+    benchmarks!(
+        c,
+        "async_std_rt",
+        FakeAsyncStdRuntime {},
+        task::spawn,
+        "futures_intrusive(fair=false)",
         IntrusiveMutex::new((), false)
     );
 }
@@ -193,11 +215,13 @@ criterion_group! {
     config = Criterion::default().measurement_time(Duration::from_secs(10));
     targets =
         // tokio
-        tokio_rt_intrusive_benchmarks,
+        tokio_rt_intrusive_fair_benchmarks,
+        tokio_rt_intrusive_unfair_benchmarks,
         tokio_rt_async_std_benchmarks,
         tokio_rt_tokio_benchmarks,
         // async-std
-        async_std_intrusive_benchmarks,
+        async_std_intrusive_fair_benchmarks,
+        async_std_intrusive_unfair_benchmarks,
         async_std_async_std_benchmarks,
         async_std_tokio_benchmarks
 }
