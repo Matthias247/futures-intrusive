@@ -190,6 +190,146 @@ macro_rules! gen_mpmc_tests {
             }
 
             #[test]
+            fn send_on_frozen_channel() {
+                let channel = ChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                // This allows the sender to queue but the future stay pending
+                // until thaw is called.
+                channel.freeze();
+
+                for _ in 0..10 {
+                    let send_fut = channel.send(5);
+                    pin_mut!(send_fut);
+                    assert!(send_fut.as_mut().poll(cx).is_pending());
+                    assert_eq!(count, 0);
+                }
+            }
+
+            #[test]
+            fn thaw_wakeup_send() {
+                let channel = ChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                channel.freeze();
+
+                let send_fut1 = channel.send(1);
+                pin_mut!(send_fut1);
+                assert!(send_fut1.as_mut().poll(cx).is_pending());
+
+                let send_fut2 = channel.send(2);
+                pin_mut!(send_fut2);
+                assert!(send_fut2.as_mut().poll(cx).is_pending());
+
+                let send_fut3 = channel.send(3);
+                pin_mut!(send_fut3);
+                assert!(send_fut3.as_mut().poll(cx).is_pending());
+
+                assert_eq!(count, 0);
+
+                channel.thaw();
+
+                assert_eq!(count, 3);
+
+                assert_send_done(cx, &mut send_fut1, Ok(()));
+                assert_send_done(cx, &mut send_fut2, Ok(()));
+                assert_send_done(cx, &mut send_fut3, Ok(()));
+            }
+
+            #[test]
+            fn thaw_wakeup_receive() {
+                let channel = ChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                // This allows the sender to queue.
+                channel.freeze();
+
+                let send_fut1 = channel.send(1);
+                pin_mut!(send_fut1);
+                assert!(send_fut1.as_mut().poll(cx).is_pending());
+
+                let send_fut2 = channel.send(2);
+                pin_mut!(send_fut2);
+                assert!(send_fut2.as_mut().poll(cx).is_pending());
+
+                let send_fut3 = channel.send(3);
+                pin_mut!(send_fut3);
+                assert!(send_fut3.as_mut().poll(cx).is_pending());
+
+                let recv_fut1 = channel.receive();
+                pin_mut!(recv_fut1);
+                assert!(recv_fut1.as_mut().poll(cx).is_pending());
+
+                let recv_fut2 = channel.receive();
+                pin_mut!(recv_fut2);
+                assert!(recv_fut2.as_mut().poll(cx).is_pending());
+
+                let recv_fut3 = channel.receive();
+                pin_mut!(recv_fut3);
+                assert!(recv_fut3.as_mut().poll(cx).is_pending());
+
+                assert_eq!(count, 0);
+
+                channel.thaw();
+
+                assert_eq!(count, 6);
+
+                assert_send_done(cx, &mut send_fut1, Ok(()));
+                assert_send_done(cx, &mut send_fut2, Ok(()));
+                assert_send_done(cx, &mut send_fut3, Ok(()));
+
+                assert_receive_done(cx, &mut recv_fut1, Some(1));
+                assert_receive_done(cx, &mut recv_fut2, Some(2));
+                assert_receive_done(cx, &mut recv_fut3, Some(3));
+            }
+
+            #[test]
+            fn freeze_allows_drain() {
+                let channel = ChannelType::new();
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+
+                assert_send(cx, &channel, 1);
+                assert_send(cx, &channel, 2);
+                assert_send(cx, &channel, 3);
+
+                channel.freeze();
+
+                let send_fut4 = channel.send(4);
+                pin_mut!(send_fut4);
+                assert!(send_fut4.as_mut().poll(cx).is_pending());
+
+                let send_fut5 = channel.send(5);
+                pin_mut!(send_fut5);
+                assert!(send_fut5.as_mut().poll(cx).is_pending());
+
+                let send_fut6 = channel.send(6);
+                pin_mut!(send_fut6);
+                assert!(send_fut6.as_mut().poll(cx).is_pending());
+
+                assert_eq!(count, 0);
+
+                assert_receive!(cx, &channel, Some(1));
+                assert_receive!(cx, &channel, Some(2));
+                assert_receive!(cx, &channel, Some(3));
+
+                let recv_fut1 = channel.receive();
+                pin_mut!(recv_fut1);
+                assert!(recv_fut1.as_mut().poll(cx).is_pending());
+
+                let recv_fut2 = channel.receive();
+                pin_mut!(recv_fut2);
+                assert!(recv_fut2.as_mut().poll(cx).is_pending());
+
+                let recv_fut3 = channel.receive();
+                pin_mut!(recv_fut3);
+                assert!(recv_fut3.as_mut().poll(cx).is_pending());
+            }
+
+            #[test]
             fn unbuffered_try_receive() {
                 let channel = UnbufferedChannelType::new();
                 let (waker, count) = new_count_waker();
@@ -320,7 +460,7 @@ macro_rules! gen_mpmc_tests {
             }
 
             #[test]
-            fn close_unblocks_receive() {
+            fn close_blocks_receive() {
                 let channel = ChannelType::new();
                 let (waker, count) = new_count_waker();
                 let cx = &mut Context::from_waker(&waker);
