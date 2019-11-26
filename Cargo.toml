@@ -20,7 +20,7 @@ default = ["std"]
 [dependencies]
 futures-core = { version = "0.3.0", default-features = false }
 lock_api = "0.3.1"
-parking_lot = { version = "0.9", optional = true }
+parking_lot = { version = "0.10", optional = true }
 
 [dev-dependencies]
 futures = { version = "0.3.0", default-features = true, features=["async-await"] }
