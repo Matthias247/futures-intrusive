@@ -58,7 +58,8 @@ macro_rules! contention {
         $rt_setup: expr, $spawn_fn: expr,
         $mutex_constructor: expr, $nr_iterations: expr
     ) => {
-        let rt = $rt_setup;
+        #[allow(unused_mut)] // mut is only required for some runtimes
+        let mut rt = $rt_setup;
         $b.iter(|| {
             rt.block_on(async {
                 run_with_mutex!(
@@ -78,7 +79,8 @@ macro_rules! no_contention {
         $rt_setup: expr, $spawn_fn: expr,
         $mutex_constructor: expr, $nr_iterations: expr
     ) => {
-        let rt = $rt_setup;
+        #[allow(unused_mut)] // mut is only required for some runtimes
+        let mut rt = $rt_setup;
         $b.iter(|| {
             rt.block_on(async {
                 run_with_mutex!(

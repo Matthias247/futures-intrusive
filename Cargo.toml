@@ -19,7 +19,7 @@ default = ["std"]
 
 [dependencies]
 futures-core = { version = "0.3.0", default-features = false }
-lock_api = "0.3.1"
+lock_api = "0.3.2"
 parking_lot = { version = "0.10", optional = true }
 
 [dev-dependencies]
@@ -30,8 +30,8 @@ criterion = "0.3.0"
 crossbeam = "0.7" # For channel benchmarks
 lazy_static = "1.4.0"
 rand = "0.7"
-async-std = "1.0.1" # For benchmarks
-tokio = "0.2.0-alpha.6" # For channel benchmarks
+async-std = "1.1" # For benchmarks
+tokio = { version = "0.2.1", features = ["full"] } # For channel benchmarks
 signal-hook = "0.1.11" # For cancellation example
 
 [[bench]]
