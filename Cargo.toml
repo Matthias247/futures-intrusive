@@ -30,8 +30,8 @@ criterion = "0.3.0"
 crossbeam = "0.7" # For channel benchmarks
 lazy_static = "1.4.0"
 rand = "0.7"
-async-std = "1.1" # For benchmarks
-tokio = { version = "0.2.1", features = ["full"] } # For channel benchmarks
+async-std = "1.3" # For benchmarks
+tokio = { version = "0.2.5", features = ["full"] } # For channel benchmarks
 signal-hook = "0.1.11" # For cancellation example
 
 [[bench]]
