@@ -75,6 +75,7 @@ impl<T> LinkedList<T> {
     /// the linked list.
     /// The returned pointer is only guaranteed to be valid as long as the list
     /// is not mutated
+    #[allow(unused)]
     pub fn peek_last(&self) -> *mut ListNode<T> {
         let mut iter = self.head;
         if iter.is_null() {

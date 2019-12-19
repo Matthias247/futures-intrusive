@@ -2,7 +2,7 @@
 //! executing futures.
 
 use crate::{
-    intrusive_singly_linked_list::{LinkedList, ListNode},
+    intrusive_double_linked_list::{LinkedList, ListNode},
     utils::update_waker_ref,
     NoopLock,
 };
@@ -71,7 +71,8 @@ impl MutexState {
         let last_waiter = if self.is_fair {
             self.waiters.peek_last()
         } else {
-            self.waiters.remove_last()
+            // Safety: The linked list is guaranteed to be in consistent state
+            unsafe { self.waiters.remove_last() }
         };
 
         if !last_waiter.is_null() {

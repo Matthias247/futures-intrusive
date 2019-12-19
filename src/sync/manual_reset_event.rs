@@ -1,7 +1,7 @@
 //! An asynchronously awaitable event for signalization between tasks
 
 use crate::{
-    intrusive_singly_linked_list::{LinkedList, ListNode},
+    intrusive_double_linked_list::{LinkedList, ListNode},
     utils::update_waker_ref,
     NoopLock,
 };
@@ -72,16 +72,14 @@ impl EventState {
             // only move it from the blocked into the ready state and not have
             // further side effects.
 
-            let mut waiters = self.waiters.take();
+            let waiters = self.waiters.take();
 
             unsafe {
-                // Reverse the waiter list, so that the oldest waker (which is
-                // at the end of the list), gets woken first.
-                waiters.reverse();
-
-                for waiter in waiters.into_iter() {
-                    if let Some(ref handle) = &(*waiter).task {
-                        handle.wake_by_ref();
+                // Use a reverse iterator, so that the oldest waiter gets
+                // scheduled first
+                for waiter in waiters.into_reverse_iter() {
+                    if let Some(handle) = (*waiter).task.take() {
+                        handle.wake();
                     }
                     (*waiter).state = PollState::Done;
                 }

@@ -2,7 +2,7 @@
 //! executing futures.
 
 use crate::{
-    intrusive_singly_linked_list::{LinkedList, ListNode},
+    intrusive_double_linked_list::{LinkedList, ListNode},
     utils::update_waker_ref,
     NoopLock,
 };

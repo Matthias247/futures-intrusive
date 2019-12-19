@@ -213,9 +213,7 @@ impl<T> LinkedList<T> {
             }
             self.head = (*item).next;
         } else {
-            if (*prev).next != item {
-                return false;
-            }
+            debug_assert_eq!((*prev).next, item);
             (*prev).next = (*item).next;
         }
 
@@ -227,9 +225,7 @@ impl<T> LinkedList<T> {
             }
             self.tail = (*item).prev;
         } else {
-            if (*next).prev != item {
-                return false;
-            }
+            debug_assert_eq!((*next).prev, item);
             (*next).prev = (*item).prev;
         }
 
