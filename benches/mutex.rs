@@ -9,8 +9,15 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-const ITERATIONS: usize = 1000;
+mod utils;
+use utils::Yield;
+
+const ITERATIONS: usize = 300;
 const CONTENTION_THREADS: usize = 10;
+/// With a chance of 25% chance the operation inside the async Mutex blocks,
+/// which is emulated by yielding `NR_YIELD` times back to the executor.
+const YIELD_CHANCE: usize = 25;
+const NR_YIELDS: usize = 10;
 
 /// Extension trait to add support for `block_on` for runtimes which not
 /// natively support it as member function
@@ -41,8 +48,19 @@ macro_rules! run_with_mutex {
             let m = m.clone();
             let s = sem.clone();
             tasks.push($spawn_fn(async move {
-                for _ in 0..$nr_iterations {
+                for count in 0..$nr_iterations {
                     let _ = m.lock().await;
+                    // Asynchronous mutexes are intended to guard over
+                    // operations which are potentially task-blocking and take
+                    // a certain amount of time to complete. In order to simulate
+                    // the behavior we yield a certain amount of times to back
+                    // to the executor. This is more consistent than e.g. using
+                    // a timer, and the overhead of yielding is the same for the
+                    // various Mutex implementations.
+
+                    if YIELD_CHANCE != 0 && (count % (100 / YIELD_CHANCE) == 0) {
+                        Yield::new(NR_YIELDS).await;
+                    }
                 }
                 s.release(1);
             }));
