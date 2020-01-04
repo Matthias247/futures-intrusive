@@ -1,6 +1,6 @@
 //! An asynchronously awaitable multi producer multi consumer channel
 
-use crate::intrusive_singly_linked_list::{LinkedList, ListNode};
+use crate::intrusive_double_linked_list::{LinkedList, ListNode};
 use crate::{
     buffer::{ArrayBuf, RingBuf},
     utils::update_waker_ref,
@@ -20,14 +20,13 @@ use super::{
     SendWaitQueueEntry, TryReceiveError, TrySendError,
 };
 
-fn wake_recv_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
+fn wake_recv_waiters(waiters: LinkedList<RecvWaitQueueEntry>) {
     unsafe {
         // Reverse the waiter list, so that the oldest waker (which is
         // at the end of the list), gets woken first and has the best
         // chance to grab the channel value.
-        waiters.reverse();
 
-        for waiter in waiters.into_iter() {
+        for waiter in waiters.into_reverse_iter() {
             if let Some(handle) = (*waiter).task.take() {
                 handle.wake();
             }
@@ -39,14 +38,13 @@ fn wake_recv_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
     }
 }
 
-fn wake_send_waiters<T>(mut waiters: LinkedList<SendWaitQueueEntry<T>>) {
+fn wake_send_waiters<T>(waiters: LinkedList<SendWaitQueueEntry<T>>) {
     unsafe {
         // Reverse the waiter list, so that the oldest waker (which is
         // at the end of the list), gets woken first and has the best
         // chance to grab the channel value.
-        waiters.reverse();
 
-        for waiter in waiters.into_iter() {
+        for waiter in waiters.into_reverse_iter() {
             if let Some(handle) = (*waiter).task.take() {
                 handle.wake();
             }
@@ -57,7 +55,8 @@ fn wake_send_waiters<T>(mut waiters: LinkedList<SendWaitQueueEntry<T>>) {
 
 /// Wakes up the last waiter and removes it from the wait queue
 fn wakeup_last_receive_waiter(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
-    let last_waiter = waiters.remove_last();
+    // Safety: The list is is guaranteed to be in consistent state
+    let last_waiter = unsafe { waiters.remove_last() };
 
     if !last_waiter.is_null() {
         unsafe {
@@ -221,7 +220,7 @@ where
         // Since the list is not empty, a value is available.
         // Extract it from the sender in order to return it
         debug_assert_eq!(0, self.buffer.capacity());
-        let last_sender = self.send_waiters.remove_last();
+        let last_sender = unsafe { self.send_waiters.remove_last() };
         debug_assert!(!last_sender.is_null());
 
         // Safety: The sender can't be null, since we only add valid

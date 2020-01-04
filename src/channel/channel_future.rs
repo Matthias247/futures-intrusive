@@ -1,5 +1,5 @@
 use super::ChannelSendError;
-use crate::intrusive_singly_linked_list::ListNode;
+use crate::intrusive_double_linked_list::ListNode;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use futures_core::future::{FusedFuture, Future};

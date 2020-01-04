@@ -7,7 +7,7 @@ use super::{
     RecvWaitQueueEntry,
 };
 use crate::{
-    intrusive_singly_linked_list::{LinkedList, ListNode},
+    intrusive_double_linked_list::{LinkedList, ListNode},
     utils::update_waker_ref,
     NoopLock,
 };
@@ -15,13 +15,12 @@ use core::marker::PhantomData;
 use futures_core::task::{Context, Poll};
 use lock_api::{Mutex, RawMutex};
 
-unsafe fn wake_waiters(mut waiters: LinkedList<RecvWaitQueueEntry>) {
+unsafe fn wake_waiters(waiters: LinkedList<RecvWaitQueueEntry>) {
     // Reverse the waiter list, so that the oldest waker (which is
     // at the end of the list), gets woken first and has the best
     // chance to grab the channel value.
-    waiters.reverse();
 
-    for waiter in waiters.into_iter() {
+    for waiter in waiters.into_reverse_iter() {
         if let Some(handle) = (*waiter).task.take() {
             handle.wake();
         }
