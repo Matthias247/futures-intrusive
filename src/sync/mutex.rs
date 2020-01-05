@@ -66,8 +66,11 @@ impl MutexState {
         }
     }
 
-    /// Wakes up the last waiter and removes it from the wait queue
-    fn wakeup_last_waiter(&mut self) {
+    /// Returns the `Waker` associated with the up the last waiter
+    ///
+    /// If the Mutex is not fair, removes the associated wait node also from
+    /// the wait queue
+    fn return_last_waiter(&mut self) -> Option<Waker> {
         let last_waiter = if self.is_fair {
             self.waiters.peek_last()
         } else {
@@ -83,26 +86,32 @@ impl MutexState {
             unsafe {
                 (*last_waiter).state = PollState::Notified;
 
-                let task = &(*last_waiter).task;
-                if let Some(ref handle) = task {
-                    handle.wake_by_ref();
-                }
+                let task = &mut (*last_waiter).task;
+                return task.take();
             }
         }
+
+        None
     }
 
     fn is_locked(&self) -> bool {
         self.is_locked
     }
 
-    /// Unlocks the mutex. This is expected to be only called from the current holder of the mutex
-    fn unlock(&mut self) {
+    /// Unlocks the mutex
+    ///
+    /// This is expected to be only called from the current holder of the mutex.
+    /// The method returns the `Waker` which is associated with the task that
+    /// needs to get woken due to the unlock.
+    fn unlock(&mut self) -> Option<Waker> {
         if self.is_locked {
             self.is_locked = false;
             // TODO: Does this require a memory barrier for the actual data,
             // or is this covered by unlocking the mutex which protects the data?
             // Wakeup the last waiter
-            self.wakeup_last_waiter();
+            self.return_last_waiter()
+        } else {
+            None
         }
     }
 
@@ -189,6 +198,9 @@ impl MutexState {
                     wait_node.state = PollState::Done;
                     Poll::Ready(())
                 } else {
+                    // Fair mutexes should always be able to acquire the lock
+                    // after they had been notified
+                    debug_assert!(!self.is_fair);
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
@@ -217,10 +229,17 @@ impl MutexState {
     }
 
     /// Removes the waiter from the list.
+    ///
     /// This function is only safe as long as the reference that is passed here
     /// equals the reference/address under which the waiter was added.
     /// The waiter must not have been moved in between.
-    fn remove_waiter(&mut self, wait_node: &mut ListNode<WaitQueueEntry>) {
+    ///
+    /// Returns the `Waker` of another task which might get ready to run due to
+    /// this.
+    fn remove_waiter(
+        &mut self,
+        wait_node: &mut ListNode<WaitQueueEntry>,
+    ) -> Option<Waker> {
         // MutexLockFuture only needs to get removed if it had been added to
         // the wait queue of the Mutex. This has happened in the PollState::Waiting case.
         // If the current waiter was notified, another waiter must get notified now.
@@ -232,14 +251,17 @@ impl MutexState {
                     unsafe { self.force_remove_waiter(wait_node) };
                 }
                 wait_node.state = PollState::Done;
-                self.wakeup_last_waiter();
+                // Since the task was notified but did not lock the Mutex,
+                // another task gets the chance to run.
+                self.return_last_waiter()
             }
             PollState::Waiting => {
                 // Remove the WaitQueueEntry from the linked list
                 unsafe { self.force_remove_waiter(wait_node) };
                 wait_node.state = PollState::Done;
+                None
             }
-            PollState::New | PollState::Done => {}
+            PollState::New | PollState::Done => None,
         }
     }
 }
@@ -263,7 +285,10 @@ impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
 impl<MutexType: RawMutex, T> Drop for GenericMutexGuard<'_, MutexType, T> {
     fn drop(&mut self) {
         // Release the mutex
-        self.mutex.state.lock().unlock();
+        let waker = { self.mutex.state.lock().unlock() };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
     }
 }
 
@@ -351,9 +376,15 @@ impl<'a, MutexType: RawMutex, T> Drop
         // If this GenericMutexLockFuture has been polled and it was added to the
         // wait queue at the mutex, it must be removed before dropping.
         // Otherwise the mutex would access invalid memory.
-        if let Some(mutex) = self.mutex {
+        let waker = if let Some(mutex) = self.mutex {
             let mut mutex_state = mutex.state.lock();
-            mutex_state.remove_waiter(&mut self.wait_node);
+            mutex_state.remove_waiter(&mut self.wait_node)
+        } else {
+            None
+        };
+
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 }
