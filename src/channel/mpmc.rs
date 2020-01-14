@@ -69,6 +69,35 @@ fn wakeup_last_receive_waiter(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
     }
 }
 
+/// Conveys additionnal information regarding the status of a channel
+/// following a `close` operation.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum CloseStatus {
+    /// The channel has just been closed by the operation.
+    NewlyClosed,
+
+    /// The channel was already closed prior to the operation.
+    AlreadyClosed,
+}
+
+impl CloseStatus {
+    /// Returns whether the value is the `NewlyClosed` variant.
+    pub fn is_newly_closed(self) -> bool {
+        match self {
+            Self::NewlyClosed => true,
+            _ => false,
+        }
+    }
+
+    /// Returns whether the value is the `AlreadyClosed` variant.
+    pub fn is_already_closed(self) -> bool {
+        match self {
+            Self::AlreadyClosed => true,
+            _ => false,
+        }
+    }
+}
+
 /// Internal state of the channel
 struct ChannelState<T, A>
 where
@@ -97,9 +126,9 @@ where
         }
     }
 
-    fn close(&mut self) {
+    fn close(&mut self) -> CloseStatus {
         if self.is_closed {
-            return;
+            return CloseStatus::AlreadyClosed;
         }
         self.is_closed = true;
 
@@ -109,6 +138,8 @@ where
         wake_recv_waiters(recv_waiters);
         let send_waiters = self.send_waiters.take();
         wake_send_waiters(send_waiters);
+
+        CloseStatus::NewlyClosed
     }
 
     /// Attempt to send a value without waiting.
@@ -467,7 +498,7 @@ where
     /// All pending and future send attempts will fail.
     /// Receive attempts will continue to succeed as long as there are items
     /// stored inside the channel. Further attempts will fail.
-    pub fn close(&self) {
+    pub fn close(&self) -> CloseStatus {
         self.inner.lock().close()
     }
 }
@@ -892,7 +923,7 @@ mod if_alloc {
             /// All pending future send attempts will fail.
             /// Receive attempts will continue to succeed as long as there are items
             /// stored inside the channel. Further attempts will return `None`.
-            pub fn close(&self) {
+            pub fn close(&self) -> CloseStatus {
                 self.inner.channel.close()
             }
         }
@@ -921,7 +952,7 @@ mod if_alloc {
             /// All pending future send attempts will fail.
             /// Receive attempts will continue to succeed as long as there are items
             /// stored inside the channel. Further attempts will return `None`.
-            pub fn close(&self) {
+            pub fn close(&self) -> CloseStatus {
                 self.inner.channel.close()
             }
 

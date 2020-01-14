@@ -183,7 +183,7 @@ macro_rules! gen_mpmc_tests {
                 let waker = &panic_waker();
                 let cx = &mut Context::from_waker(&waker);
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 let fut = channel.send(5);
                 pin_mut!(fut);
                 assert_send_done(cx, &mut fut, Err(ChannelSendError(5)));
@@ -225,6 +225,16 @@ macro_rules! gen_mpmc_tests {
             }
 
             #[test]
+            fn close_state() {
+                let channel = ChannelType::with_capacity(3);
+
+                assert!(channel.close().is_newly_closed());
+                assert!(channel.close().is_already_closed());
+                assert!(channel.close().is_already_closed());
+                assert!(channel.close().is_already_closed());
+            }
+
+            #[test]
             fn try_send_full_channel() {
                 let channel = ChannelType::with_capacity(3);
 
@@ -240,7 +250,7 @@ macro_rules! gen_mpmc_tests {
             fn try_send_on_closed_channel() {
                 let channel = ChannelType::new();
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
 
                 let err = channel.try_send(5).unwrap_err();
                 assert!(err.is_closed());
@@ -260,7 +270,7 @@ macro_rules! gen_mpmc_tests {
 
                 channel.try_send(5).unwrap();
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
 
                 channel.try_receive().unwrap();
                 let err = channel.try_receive().unwrap_err();
@@ -293,7 +303,7 @@ macro_rules! gen_mpmc_tests {
                 assert!(fut2.as_mut().poll(cx).is_pending());
                 assert_eq!(count, 0);
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(count, 2);
                 assert_send_done(cx, &mut fut, Err(ChannelSendError(8)));
                 assert_send_done(cx, &mut fut2, Err(ChannelSendError(9)));
@@ -313,7 +323,7 @@ macro_rules! gen_mpmc_tests {
                 assert!(fut2.as_mut().poll(cx).is_pending());
                 assert_eq!(count, 0);
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(count, 2);
                 assert_send_done(cx, &mut fut, Err(ChannelSendError(8)));
                 assert_send_done(cx, &mut fut2, Err(ChannelSendError(9)));
@@ -333,7 +343,7 @@ macro_rules! gen_mpmc_tests {
                 assert!(fut2.as_mut().poll(cx).is_pending());
                 assert_eq!(count, 0);
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(count, 2);
                 assert_receive_done(cx, &mut fut, None);
                 assert_receive_done(cx, &mut fut2, None);
@@ -353,7 +363,7 @@ macro_rules! gen_mpmc_tests {
                 assert_send(cx, &channel, 5);
                 assert_send(cx, &channel, 6);
                 assert_send(cx, &channel, 7);
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_receive!(cx, &channel, Some(5));
                 assert_receive!(cx, &channel, Some(6));
                 assert_receive!(cx, &channel, Some(7));
@@ -581,7 +591,7 @@ macro_rules! gen_mpmc_tests {
                 assert_send_done(cx, &mut poll2, Ok(()));
                 assert_send_done(cx, &mut poll3, Ok(()));
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_receive!(cx, &channel, Some(1));
                 assert_receive!(cx, &channel, Some(2));
                 assert_receive!(cx, &channel, Some(3));
@@ -978,7 +988,7 @@ macro_rules! gen_mpmc_tests {
                 assert!(stream.as_mut().poll_next(cx).is_pending());
 
                 // This should terminate the stream.
-                channel.close();
+                assert!(channel.close().is_newly_closed());
 
                 // This should unblock.
                 assert_next_done(cx, &mut stream, None);
@@ -1031,7 +1041,7 @@ macro_rules! gen_mpmc_tests {
                 assert!(stream.as_mut().poll_next(cx).is_pending());
 
                 // This should terminate the stream.
-                channel.close();
+                assert!(channel.close().is_newly_closed());
 
                 // This should unblock.
                 assert_next_done(cx, &mut stream, None);
@@ -1167,7 +1177,7 @@ mod if_std {
             async move {
                 send_stream(&sender, 2).await;
                 send_stream(&sender, 7).await;
-                sender.close();
+                assert!(sender.close().is_newly_closed());
             }
         };
 
@@ -1249,7 +1259,7 @@ mod if_std {
     fn try_send_on_closed_channel() {
         let (sender, receiver) = channel::<i32>(3);
 
-        receiver.close();
+        assert!(receiver.close().is_newly_closed());
         let err = sender.try_send(5).unwrap_err();
         assert!(err.is_closed());
     }
@@ -1268,7 +1278,7 @@ mod if_std {
 
         sender.try_send(5).unwrap();
 
-        sender.close();
+        assert!(sender.close().is_newly_closed());
 
         receiver.try_receive().unwrap();
         let err = receiver.try_receive().unwrap_err();
@@ -1394,7 +1404,7 @@ mod if_std {
         assert!(stream.as_mut().poll_next(cx).is_pending());
 
         // This should terminate the stream.
-        sender.close();
+        assert!(sender.close().is_newly_closed());
 
         // This should unblock.
         assert_next_done(cx, &mut stream, None);

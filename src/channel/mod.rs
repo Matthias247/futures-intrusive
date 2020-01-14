@@ -40,7 +40,9 @@ pub use self::state_broadcast::StateBroadcastChannel;
 
 mod mpmc;
 
-pub use self::mpmc::{GenericChannel, LocalChannel, LocalUnbufferedChannel};
+pub use self::mpmc::{
+    CloseStatus, GenericChannel, LocalChannel, LocalUnbufferedChannel,
+};
 
 #[cfg(feature = "std")]
 pub use self::mpmc::{Channel, UnbufferedChannel};
