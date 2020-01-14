@@ -10,7 +10,7 @@ use core::{marker::PhantomData, pin::Pin};
 use futures_core::{
     future::Future,
     stream::{FusedStream, Stream},
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 use lock_api::{Mutex, RawMutex};
 
@@ -54,7 +54,10 @@ fn wake_send_waiters<T>(waiters: LinkedList<SendWaitQueueEntry<T>>) {
 }
 
 /// Wakes up the last waiter and removes it from the wait queue
-fn wakeup_last_receive_waiter(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
+#[must_use]
+fn return_oldest_receive_waiter(
+    waiters: &mut LinkedList<RecvWaitQueueEntry>,
+) -> Option<Waker> {
     // Safety: The list is is guaranteed to be in consistent state
     let last_waiter = unsafe { waiters.remove_last() };
 
@@ -62,10 +65,10 @@ fn wakeup_last_receive_waiter(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
         unsafe {
             (*last_waiter).state = RecvPollState::Notified;
 
-            if let Some(handle) = (*last_waiter).task.take() {
-                handle.wake();
-            }
+            (*last_waiter).task.take()
         }
+    } else {
+        None
     }
 }
 
@@ -114,7 +117,8 @@ where
     }
 
     /// Attempt to send a value without waiting.
-    fn try_send(&mut self, value: T) -> Result<(), TrySendError<T>> {
+    /// Returns a `Waker` if sending the value lead enabled a task to run.
+    fn try_send(&mut self, value: T) -> Result<Option<Waker>, TrySendError<T>> {
         debug_assert!(
             self.buffer.capacity() > 0,
             "try_send is not supported for unbuffered channels"
@@ -125,10 +129,8 @@ where
         } else if self.buffer.can_push() {
             self.buffer.push(value);
 
-            // Wakeup the oldest receive waiter
-            wakeup_last_receive_waiter(&mut self.receive_waiters);
-
-            Ok(())
+            // Return the oldest receive waiter
+            Ok(return_oldest_receive_waiter(&mut self.receive_waiters))
         } else {
             Err(TrySendError::Full(value))
         }
@@ -140,16 +142,18 @@ where
     /// If the channels is already closed, the value to send is returned.
     /// This function is only safe as long as the `wait_node`s address is guaranteed
     /// to be stable until it gets removed from the queue.
+    /// If sending the value succeeded, the `Waker` for a task which can receive
+    /// the value is returned.
     unsafe fn send_or_register(
         &mut self,
         wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
         cx: &mut Context<'_>,
-    ) -> (Poll<()>, Option<T>) {
+    ) -> (Poll<()>, Option<T>, Option<Waker>) {
         match wait_node.state {
             SendPollState::Unregistered => {
                 if self.is_closed {
                     let value = wait_node.value.take();
-                    return (Poll::Ready(()), value);
+                    return (Poll::Ready(()), value, None);
                 }
 
                 if !self.buffer.can_push() {
@@ -158,9 +162,10 @@ where
                     wait_node.state = SendPollState::Registered;
                     self.send_waiters.add_front(wait_node);
 
-                    // Wakeup the oldest receive waiter
-                    wakeup_last_receive_waiter(&mut self.receive_waiters);
-                    return (Poll::Pending, None);
+                    // Return the oldest receive waiter
+                    let waker =
+                        return_oldest_receive_waiter(&mut self.receive_waiters);
+                    return (Poll::Pending, None, waker);
                 } else {
                     // Otherwise copy the value directly into the channel
                     let value = wait_node
@@ -169,10 +174,11 @@ where
                         .expect("wait_node must contain value");
                     self.buffer.push(value);
 
-                    // Wakeup the oldest receive waiter
-                    wakeup_last_receive_waiter(&mut self.receive_waiters);
+                    // Return the oldest receive waiter
+                    let waker =
+                        return_oldest_receive_waiter(&mut self.receive_waiters);
 
-                    (Poll::Ready(()), None)
+                    (Poll::Ready(()), None, waker)
                 }
             }
             SendPollState::Registered => {
@@ -181,19 +187,20 @@ where
                 // However the caller might have passed a different `Waker`.
                 // In this case we need to update it.
                 update_waker_ref(&mut wait_node.task, cx);
-                (Poll::Pending, None)
+                (Poll::Pending, None, None)
             }
             SendPollState::SendComplete => {
                 // The transfer is complete, and the sender has already been removed from the
                 // list of pending senders
-                (Poll::Ready(()), None)
+                (Poll::Ready(()), None, None)
             }
         }
     }
 
     /// If there is a send waiter, copy it's value into the channel buffer and complete it.
     /// The method may only be called if there is space in the receive buffer.
-    unsafe fn try_copy_value_from_last_waiter(&mut self) {
+    #[must_use]
+    unsafe fn try_copy_value_from_oldest_waiter(&mut self) -> Option<Waker> {
         let last_waiter = self.send_waiters.remove_last();
 
         if !last_waiter.is_null() {
@@ -206,15 +213,15 @@ where
 
             last_waiter.state = SendPollState::SendComplete;
 
-            if let Some(task) = last_waiter.task.take() {
-                task.wake();
-            }
+            last_waiter.task.take()
+        } else {
+            None
         }
     }
 
     /// Tries to extract a value from the sending waiter which has been waiting
     /// longest on the send operation to complete.
-    fn try_take_value_from_sender(&mut self) -> Option<T> {
+    fn try_take_value_from_sender(&mut self) -> Option<(T, Option<Waker>)> {
         if self.send_waiters.is_empty() {
             return None;
         }
@@ -231,26 +238,22 @@ where
         let val = last_sender.value.take().expect("Value must be available");
         last_sender.state = SendPollState::SendComplete;
 
-        // Wakeup the waiter
-        if let Some(task) = last_sender.task.take() {
-            task.wake();
-        }
-
-        Some(val)
+        // Return the waiter
+        Some((val, last_sender.task.take()))
     }
 
     /// Tries to receive a value from the channel without waiting.
-    fn try_receive(&mut self) -> Result<T, TryReceiveError> {
+    fn try_receive(&mut self) -> Result<(T, Option<Waker>), TryReceiveError> {
         if !self.buffer.is_empty() {
             let val = self.buffer.pop();
 
             // Since this means a space in the buffer had been freed,
             // try to copy a value from a potential waiter into the channel.
-            unsafe { self.try_copy_value_from_last_waiter() };
+            let waker = unsafe { self.try_copy_value_from_oldest_waiter() };
 
-            Ok(val)
-        } else if let Some(val) = self.try_take_value_from_sender() {
-            Ok(val)
+            Ok((val, waker))
+        } else if let Some((val, waker)) = self.try_take_value_from_sender() {
+            Ok((val, waker))
         } else if self.is_closed {
             Err(TryReceiveError::Closed)
         } else {
@@ -267,7 +270,7 @@ where
         &mut self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<T>> {
+    ) -> Poll<Option<(T, Option<Waker>)>> {
         match wait_node.state {
             RecvPollState::Unregistered | RecvPollState::Notified => {
                 wait_node.state = RecvPollState::Unregistered;
@@ -318,10 +321,11 @@ where
         }
     }
 
+    #[must_use]
     fn remove_receive_waiter(
         &mut self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
-    ) {
+    ) -> Option<Waker> {
         // ChannelReceiveFuture only needs to get removed if it had been added to
         // the wait queue of the channel. This has happened in the RecvPollState::Registered case.
         match wait_node.state {
@@ -332,13 +336,14 @@ where
                     panic!("Future could not be removed from wait queue");
                 }
                 wait_node.state = RecvPollState::Unregistered;
+                None
             }
             RecvPollState::Notified => {
                 // wakeup another receive waiter instead
-                wakeup_last_receive_waiter(&mut self.receive_waiters);
                 wait_node.state = RecvPollState::Unregistered;
+                return_oldest_receive_waiter(&mut self.receive_waiters)
             }
-            RecvPollState::Unregistered => {}
+            RecvPollState::Unregistered => None,
         }
     }
 }
@@ -436,7 +441,16 @@ where
     /// result with unbuffered channels, it panics in order to highlight the
     /// use of an inappropriate API.
     pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
-        self.inner.lock().try_send(value)
+        let result = { self.inner.lock().try_send(value) };
+
+        match result {
+            Ok(Some(waker)) => {
+                waker.wake();
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     /// Returns a future that gets fulfilled when a value is written to the channel.
@@ -451,7 +465,17 @@ where
 
     /// Attempt to receive a value of the channel without waiting.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
-        self.inner.lock().try_receive()
+        let result = { self.inner.lock().try_receive() };
+
+        match result {
+            Ok((val, waker)) => {
+                if let Some(waker) = waker {
+                    waker.wake();
+                }
+                Ok(val)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Returns a stream that will receive values from this channel.
@@ -484,7 +508,14 @@ where
         wait_node: &mut ListNode<SendWaitQueueEntry<T>>,
         cx: &mut Context<'_>,
     ) -> (Poll<()>, Option<T>) {
-        self.inner.lock().send_or_register(wait_node, cx)
+        let (poll_result, value, waker) =
+            { self.inner.lock().send_or_register(wait_node, cx) };
+
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+
+        (poll_result, value)
     }
 
     fn remove_send_waiter(
@@ -505,14 +536,29 @@ where
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<T>> {
-        self.inner.lock().receive_or_register(wait_node, cx)
+        let result = { self.inner.lock().receive_or_register(wait_node, cx) };
+
+        match result {
+            Poll::Ready(Some((val, waker))) => {
+                if let Some(waker) = waker {
+                    waker.wake();
+                }
+                Poll::Ready(Some(val))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
     fn remove_receive_waiter(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
     ) {
-        self.inner.lock().remove_receive_waiter(wait_node)
+        let waker = { self.inner.lock().remove_receive_waiter(wait_node) };
+
+        if let Some(waker) = waker {
+            waker.wake();
+        }
     }
 }
 
