@@ -5,7 +5,7 @@ use core::pin::Pin;
 use futures_core::future::{FusedFuture, Future};
 use futures_core::task::{Context, Poll, Waker};
 
-/// Conveys additionnal information regarding the status of a channel
+/// Conveys additional information regarding the status of a channel
 /// following a `close` operation.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum CloseStatus {
