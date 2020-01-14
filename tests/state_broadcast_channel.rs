@@ -66,9 +66,18 @@ macro_rules! gen_state_broadcast_tests {
             }
 
             #[test]
+            fn close_status() {
+                let channel = ChannelType::new();
+                assert!(channel.close().is_newly_closed());
+                assert!(channel.close().is_already_closed());
+                assert!(channel.close().is_already_closed());
+                assert!(channel.close().is_already_closed());
+            }
+
+            #[test]
             fn send_on_closed_channel() {
                 let channel = ChannelType::new();
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(Err(ChannelSendError(5)), channel.send(5));
             }
 
@@ -86,7 +95,7 @@ macro_rules! gen_state_broadcast_tests {
                 assert!(fut2.as_mut().poll(cx).is_pending());
                 assert_eq!(count, 0);
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(count, 2);
                 assert_receive_closed(cx, &mut fut);
                 assert_receive_closed(cx, &mut fut2);
@@ -108,7 +117,7 @@ macro_rules! gen_state_broadcast_tests {
                 assert_send(&channel, 5);
                 assert_send(&channel, 6);
                 assert_send(&channel, 7);
-                channel.close();
+                assert!(channel.close().is_newly_closed());
 
                 assert_receive!(cx, &channel, 7, state_id);
                 assert_receive!(cx, &channel, 7, state_id);
@@ -184,7 +193,7 @@ macro_rules! gen_state_broadcast_tests {
                 let fut31 = channel.receive(state_id_3);
                 pin_mut!(fut31);
                 assert!(fut31.as_mut().poll(cx).is_pending());
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_receive_closed(cx, &mut fut31);
             }
 

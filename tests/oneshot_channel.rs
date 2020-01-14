@@ -31,8 +31,17 @@ macro_rules! gen_oneshot_tests {
             #[test]
             fn send_on_closed_channel() {
                 let channel = $channel_type::<i32>::new();
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(Err(ChannelSendError(5)), channel.send(5));
+            }
+
+            #[test]
+            fn close_status() {
+                let channel = $channel_type::<i32>::new();
+
+                assert!(channel.close().is_newly_closed());
+                assert!(channel.close().is_already_closed());
+                assert!(channel.close().is_already_closed());
             }
 
             #[test]
@@ -49,7 +58,7 @@ macro_rules! gen_oneshot_tests {
                 assert!(fut2.as_mut().poll(cx).is_pending());
                 assert_eq!(count, 0);
 
-                channel.close();
+                assert!(channel.close().is_newly_closed());
                 assert_eq!(count, 2);
                 assert_receive_done(cx, &mut fut, None);
                 assert_receive_done(cx, &mut fut2, None);

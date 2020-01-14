@@ -1,10 +1,9 @@
 //! An asynchronously awaitable oneshot channel which can be awaited by
 //! multiple consumers.
 
-use super::ChannelSendError;
 use super::{
-    ChannelReceiveAccess, ChannelReceiveFuture, RecvPollState,
-    RecvWaitQueueEntry,
+    ChannelReceiveAccess, ChannelReceiveFuture, ChannelSendError, CloseStatus,
+    RecvPollState, RecvWaitQueueEntry,
 };
 use crate::{
     intrusive_double_linked_list::{LinkedList, ListNode},
@@ -72,9 +71,9 @@ where
         Ok(())
     }
 
-    fn close(&mut self) {
+    fn close(&mut self) -> CloseStatus {
         if self.is_fulfilled {
-            return;
+            return CloseStatus::AlreadyClosed;
         }
         self.is_fulfilled = true;
 
@@ -86,6 +85,8 @@ where
         unsafe {
             wake_waiters(waiters);
         }
+
+        CloseStatus::NewlyClosed
     }
 
     /// Tries to read the value from the channel.
@@ -209,7 +210,7 @@ where
     /// with `None`.
     /// `send(value)` attempts which follow this call will fail with a
     /// [`ChannelSendError`].
-    pub fn close(&self) {
+    pub fn close(&self) -> CloseStatus {
         self.inner.lock().close()
     }
 

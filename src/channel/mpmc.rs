@@ -16,8 +16,8 @@ use lock_api::{Mutex, RawMutex};
 
 use super::{
     ChannelReceiveAccess, ChannelReceiveFuture, ChannelSendAccess,
-    ChannelSendFuture, RecvPollState, RecvWaitQueueEntry, SendPollState,
-    SendWaitQueueEntry, TryReceiveError, TrySendError,
+    ChannelSendFuture, CloseStatus, RecvPollState, RecvWaitQueueEntry,
+    SendPollState, SendWaitQueueEntry, TryReceiveError, TrySendError,
 };
 
 fn wake_recv_waiters(waiters: LinkedList<RecvWaitQueueEntry>) {
@@ -65,35 +65,6 @@ fn wakeup_last_receive_waiter(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
             if let Some(handle) = (*last_waiter).task.take() {
                 handle.wake();
             }
-        }
-    }
-}
-
-/// Conveys additionnal information regarding the status of a channel
-/// following a `close` operation.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum CloseStatus {
-    /// The channel has just been closed by the operation.
-    NewlyClosed,
-
-    /// The channel was already closed prior to the operation.
-    AlreadyClosed,
-}
-
-impl CloseStatus {
-    /// Returns whether the value is the `NewlyClosed` variant.
-    pub fn is_newly_closed(self) -> bool {
-        match self {
-            Self::NewlyClosed => true,
-            _ => false,
-        }
-    }
-
-    /// Returns whether the value is the `AlreadyClosed` variant.
-    pub fn is_already_closed(self) -> bool {
-        match self {
-            Self::AlreadyClosed => true,
-            _ => false,
         }
     }
 }

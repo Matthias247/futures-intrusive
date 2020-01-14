@@ -1,9 +1,8 @@
 //! An asynchronously awaitable oneshot channel
 
-use super::ChannelSendError;
 use super::{
-    ChannelReceiveAccess, ChannelReceiveFuture, RecvPollState,
-    RecvWaitQueueEntry,
+    ChannelReceiveAccess, ChannelReceiveFuture, ChannelSendError, CloseStatus,
+    RecvPollState, RecvWaitQueueEntry,
 };
 use crate::{
     intrusive_double_linked_list::{LinkedList, ListNode},
@@ -68,9 +67,9 @@ impl<T> ChannelState<T> {
         Ok(())
     }
 
-    fn close(&mut self) {
+    fn close(&mut self) -> CloseStatus {
         if self.is_fulfilled {
-            return;
+            return CloseStatus::AlreadyClosed;
         }
         self.is_fulfilled = true;
 
@@ -82,6 +81,7 @@ impl<T> ChannelState<T> {
         unsafe {
             wake_waiters(waiters);
         }
+        CloseStatus::NewlyClosed
     }
 
     /// Tries to read the value from the channel.
@@ -202,7 +202,7 @@ impl<MutexType: RawMutex, T> GenericOneshotChannel<MutexType, T> {
     /// with `None`.
     /// `send(value)` attempts which follow this call will fail with a
     /// [`ChannelSendError`].
-    pub fn close(&self) {
+    pub fn close(&self) -> CloseStatus {
         self.inner.lock().close()
     }
 
