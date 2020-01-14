@@ -8,8 +8,8 @@ pub use self::error::{ChannelSendError, TryReceiveError, TrySendError};
 
 mod channel_future;
 use channel_future::{
-    ChannelReceiveAccess, ChannelSendAccess, RecvPollState, RecvWaitQueueEntry,
-    SendPollState, SendWaitQueueEntry,
+    ChannelReceiveAccess, ChannelSendAccess, CloseStatus, RecvPollState,
+    RecvWaitQueueEntry, SendPollState, SendWaitQueueEntry,
 };
 pub use channel_future::{ChannelReceiveFuture, ChannelSendFuture};
 
@@ -40,9 +40,7 @@ pub use self::state_broadcast::StateBroadcastChannel;
 
 mod mpmc;
 
-pub use self::mpmc::{
-    CloseStatus, GenericChannel, LocalChannel, LocalUnbufferedChannel,
-};
+pub use self::mpmc::{GenericChannel, LocalChannel, LocalUnbufferedChannel};
 
 #[cfg(feature = "std")]
 pub use self::mpmc::{Channel, UnbufferedChannel};

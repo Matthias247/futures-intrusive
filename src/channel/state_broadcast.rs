@@ -1,6 +1,6 @@
 //! An asynchronously awaitable state broadcasting channel
 
-use super::ChannelSendError;
+use super::{ChannelSendError, CloseStatus};
 use crate::{
     intrusive_double_linked_list::{LinkedList, ListNode},
     utils::update_waker_ref,
@@ -226,9 +226,9 @@ where
         Ok(())
     }
 
-    fn close(&mut self) {
+    fn close(&mut self) -> CloseStatus {
         if self.is_closed {
-            return;
+            return CloseStatus::AlreadyClosed;
         }
         self.is_closed = true;
 
@@ -240,6 +240,8 @@ where
         unsafe {
             wake_waiters(waiters);
         }
+
+        CloseStatus::NewlyClosed
     }
 
     /// Tries to read the value from the channel.
@@ -370,7 +372,7 @@ where
     /// with `None`.
     /// `send(value)` attempts which follow this call will fail with a
     /// [`ChannelSendError`].
-    pub fn close(&self) {
+    pub fn close(&self) -> CloseStatus {
         self.inner.lock().close()
     }
 

@@ -5,6 +5,35 @@ use core::pin::Pin;
 use futures_core::future::{FusedFuture, Future};
 use futures_core::task::{Context, Poll, Waker};
 
+/// Conveys additional information regarding the status of a channel
+/// following a `close` operation.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum CloseStatus {
+    /// The channel has just been closed by the operation.
+    NewlyClosed,
+
+    /// The channel was already closed prior to the operation.
+    AlreadyClosed,
+}
+
+impl CloseStatus {
+    /// Returns whether the value is the `NewlyClosed` variant.
+    pub fn is_newly_closed(self) -> bool {
+        match self {
+            Self::NewlyClosed => true,
+            _ => false,
+        }
+    }
+
+    /// Returns whether the value is the `AlreadyClosed` variant.
+    pub fn is_already_closed(self) -> bool {
+        match self {
+            Self::AlreadyClosed => true,
+            _ => false,
+        }
+    }
+}
+
 /// Tracks how the future had interacted with the channel
 #[derive(PartialEq, Debug)]
 pub enum RecvPollState {
