@@ -8,10 +8,12 @@ pub use self::error::{ChannelSendError, TryReceiveError, TrySendError};
 
 mod channel_future;
 use channel_future::{
-    ChannelReceiveAccess, ChannelSendAccess, CloseStatus, RecvPollState,
-    RecvWaitQueueEntry, SendPollState, SendWaitQueueEntry,
+    ChannelReceiveAccess, ChannelSendAccess, RecvPollState, RecvWaitQueueEntry,
+    SendPollState, SendWaitQueueEntry,
 };
-pub use channel_future::{ChannelReceiveFuture, ChannelSendFuture};
+pub use channel_future::{
+    ChannelReceiveFuture, ChannelSendFuture, CloseStatus,
+};
 
 mod oneshot;
 
