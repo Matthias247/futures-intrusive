@@ -207,7 +207,8 @@ impl<T> LinkedList<T> {
 
         let prev = (*item).prev;
         if prev.is_null() {
-            // This might be the first item in the list
+            // This might be the first item in the list. If it isn't the
+            // item is not in the list at all.
             if self.head != item {
                 return false;
             }
@@ -219,10 +220,9 @@ impl<T> LinkedList<T> {
 
         let next = (*item).next;
         if next.is_null() {
-            // This might be the last item in the list
-            if self.tail != item {
-                return false;
-            }
+            // This must be the last item in our list. Otherwise the list
+            // is inconsistent.
+            debug_assert_eq!(self.tail, item);
             self.tail = (*item).prev;
         } else {
             debug_assert_eq!((*next).prev, item);
