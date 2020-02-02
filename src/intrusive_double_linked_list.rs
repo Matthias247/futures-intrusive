@@ -62,23 +62,23 @@ impl<T> LinkedList<T> {
     }
 
     /// Consumes the list and creates an iterator over the linked list.
-    /// This function is only safe as long as all pointers which are stored inside
-    /// the linked list are valid.
+    /// Safety: This function is only safe as long as all pointers which are
+    /// stored inside the linked list are valid.
     pub unsafe fn into_iter(self) -> LinkedListIterator<T> {
         LinkedListIterator { current: self.head }
     }
 
     /// Consumes the list and creates an iterator over the linked list in reverse
     /// direction.
-    /// This function is only safe as long as all pointers which are stored inside
-    /// the linked list are valid.
+    /// Safety: This function is only safe as long as all pointers which are
+    /// stored inside the linked list are valid.
     pub unsafe fn into_reverse_iter(self) -> LinkedListReverseIterator<T> {
         LinkedListReverseIterator { current: self.tail }
     }
 
     /// Adds an item to the front of the linked list.
-    /// The function is only safe as long as valid pointers are stored inside
-    /// the linked list.
+    /// Safety: This function is only safe as long as all pointers which are
+    /// stored inside the linked list are valid.
     pub unsafe fn add_front(&mut self, item: *mut ListNode<T>) {
         assert!(!item.is_null(), "Can not add null pointers");
         (*item).next = self.head;
@@ -92,6 +92,9 @@ impl<T> LinkedList<T> {
         }
     }
 
+    /// Inserts an item into the list in a way that the list keeps being sorted.
+    /// Safety: This function is only safe as long as all pointers which are
+    /// stored inside the linked list are valid.
     pub unsafe fn add_sorted(&mut self, item: *mut ListNode<T>)
     where
         T: PartialOrd,
@@ -157,6 +160,8 @@ impl<T> LinkedList<T> {
     }
 
     /// Removes the last item from the linked list and returns it
+    /// Safety: This function is only safe as long as all pointers which are
+    /// stored inside the linked list are valid.
     pub unsafe fn remove_last(&mut self) -> *mut ListNode<T> {
         if self.tail.is_null() {
             return null_mut();
@@ -192,14 +197,17 @@ impl<T> LinkedList<T> {
             return false;
         }
 
-        assert!(self.tail.is_null());
+        debug_assert!(self.tail.is_null());
         true
     }
 
     /// Removes the given item from the linked list.
     /// Returns whether the item was removed.
-    /// The function is only safe as long as valid pointers are stored inside
-    /// the linked list.
+    /// Safety: This function is only safe as long as all pointers which are
+    /// stored inside the linked list are valid.
+    /// It is also only save if it is known that `item` is either part of this
+    /// list, or of no list at all. If `item` is part of another list, the
+    /// behavior is undefined.
     pub unsafe fn remove(&mut self, item: *mut ListNode<T>) -> bool {
         if item.is_null() {
             return false;
@@ -207,9 +215,12 @@ impl<T> LinkedList<T> {
 
         let prev = (*item).prev;
         if prev.is_null() {
-            // This might be the first item in the list. If it isn't the
-            // item is not in the list at all.
+            // This might be the first item in the list. If it is not, the
+            // item is not in the list at all. Since our precondition is that
+            // the item must either be in this list or in no list, we check that
+            // the item is really in no list.
             if self.head != item {
+                debug_assert!((*item).next.is_null());
                 return false;
             }
             self.head = (*item).next;
