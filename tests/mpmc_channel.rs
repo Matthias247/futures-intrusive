@@ -1173,22 +1173,18 @@ mod if_std {
 
         let (sender, receiver) = channel::<i32>(5);
 
-        let stream = || {
-            async move {
-                send_stream(&sender, 2).await;
-                send_stream(&sender, 7).await;
-                assert!(sender.close().is_newly_closed());
-            }
+        let stream = || async move {
+            send_stream(&sender, 2).await;
+            send_stream(&sender, 7).await;
+            assert!(sender.close().is_newly_closed());
         };
 
-        let drain = || {
-            async move {
-                let mut sum = 0;
-                loop {
-                    match read_stream(&receiver).await {
-                        None => return sum,
-                        Some(v) => sum += v,
-                    }
+        let drain = || async move {
+            let mut sum = 0;
+            loop {
+                match read_stream(&receiver).await {
+                    None => return sum,
+                    Some(v) => sum += v,
                 }
             }
         };
