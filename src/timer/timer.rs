@@ -120,6 +120,8 @@ impl TimerState {
         // TimerFuture only needs to get removed if it had been added to
         // the wait queue of the timer. This has happened in the PollState::Registered case.
         if let PollState::Registered = wait_node.state {
+            // Safety: Due to the state, we know that the node must be part
+            // of the waiter list
             if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the TimerQueueEntry got moved after the initial poll.
@@ -134,35 +136,32 @@ impl TimerState {
     /// For thread-safe timers, the returned value is not precise and subject to
     /// race-conditions, since other threads can add timer in the meantime.
     fn next_expiration(&self) -> Option<u64> {
-        let first = self.waiters.peek_first();
-        if first.is_null() {
-            return None;
-        }
-        Some(unsafe { (*first).expiry })
+        self.waiters.peek_first().map(|first| first.expiry)
     }
 
     /// Checks whether any of the attached Futures is expired
     fn check_expirations(&mut self) {
-        unsafe {
-            let now = self.clock.now();
-            loop {
-                let first = self.waiters.peek_first();
-                if first.is_null() {
-                    return;
-                }
-                let first_expiry = (*first).expiry;
-                if now >= first_expiry {
-                    // The timer is expired.
-                    (*first).state = PollState::Expired;
-                    if let Some(task) = (*first).task.take() {
-                        task.wake();
+        let now = self.clock.now();
+        loop {
+            match self.waiters.peek_first() {
+                None => return,
+                Some(first) => {
+                    let first_expiry = first.expiry;
+                    if now >= first_expiry {
+                        // The timer is expired.
+                        first.state = PollState::Expired;
+                        if let Some(task) = first.task.take() {
+                            task.wake();
+                        }
+                    } else {
+                        // Remaining timers are not expired
+                        break;
                     }
-                    self.waiters.remove(first);
-                } else {
-                    // Remaining timers are not expired
-                    break;
                 }
             }
+
+            // Remove the expired timer
+            self.waiters.remove_first();
         }
     }
 }

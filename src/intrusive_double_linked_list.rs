@@ -1,16 +1,18 @@
 //! An intrusive double linked list of data
 
-use core::marker::PhantomPinned;
-use core::ops::{Deref, DerefMut};
-use core::ptr::null_mut;
+use core::{
+    marker::PhantomPinned,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 /// A node which carries data of type `T` and is stored in an intrusive list
 #[derive(Debug)]
 pub struct ListNode<T> {
-    /// The previous node in the list. null if there is no previous node.
-    prev: *mut ListNode<T>,
-    /// The next node in the list. null if there is no previous node.
-    next: *mut ListNode<T>,
+    /// The previous node in the list. `None` if there is no previous node.
+    prev: Option<NonNull<ListNode<T>>>,
+    /// The next node in the list. `None` if there is no previous node.
+    next: Option<NonNull<ListNode<T>>>,
     /// The data which is associated to this list item
     data: T,
     /// Prevents `ListNode`s from being `Unpin`. They may never be moved, since
@@ -22,8 +24,8 @@ impl<T> ListNode<T> {
     /// Creates a new node with the associated data
     pub fn new(data: T) -> ListNode<T> {
         ListNode::<T> {
-            prev: null_mut(),
-            next: null_mut(),
+            prev: None,
+            next: None,
             data,
             _pin: PhantomPinned,
         }
@@ -48,264 +50,313 @@ impl<T> DerefMut for ListNode<T> {
 /// of type `T`.
 #[derive(Debug)]
 pub struct LinkedList<T> {
-    head: *mut ListNode<T>,
-    tail: *mut ListNode<T>,
+    head: Option<NonNull<ListNode<T>>>,
+    tail: Option<NonNull<ListNode<T>>>,
 }
 
 impl<T> LinkedList<T> {
     /// Creates an empty linked list
     pub fn new() -> Self {
         LinkedList::<T> {
-            head: null_mut(),
-            tail: null_mut(),
+            head: None,
+            tail: None,
         }
     }
 
-    /// Consumes the list and creates an iterator over the linked list.
-    /// Safety: This function is only safe as long as all pointers which are
-    /// stored inside the linked list are valid.
-    pub unsafe fn into_iter(self) -> LinkedListIterator<T> {
-        LinkedListIterator { current: self.head }
-    }
-
-    /// Consumes the list and creates an iterator over the linked list in reverse
-    /// direction.
-    /// Safety: This function is only safe as long as all pointers which are
-    /// stored inside the linked list are valid.
-    pub unsafe fn into_reverse_iter(self) -> LinkedListReverseIterator<T> {
-        LinkedListReverseIterator { current: self.tail }
-    }
-
-    /// Adds an item to the front of the linked list.
-    /// Safety: This function is only safe as long as all pointers which are
-    /// stored inside the linked list are valid.
-    pub unsafe fn add_front(&mut self, item: *mut ListNode<T>) {
-        assert!(!item.is_null(), "Can not add null pointers");
-        (*item).next = self.head;
-        (*item).prev = null_mut();
-        if !self.head.is_null() {
-            (*self.head).prev = item;
-        }
-        self.head = item;
-        if self.tail.is_null() {
-            self.tail = item;
+    /// Adds a node at the front of the linked list.
+    /// Safety: This function is only safe as long as `node` is guaranteed to
+    /// get removed from the list before it gets moved or dropped.
+    /// In addition to this `node` may not be added to another other list before
+    /// it is removed from the current one.
+    pub unsafe fn add_front(&mut self, node: &mut ListNode<T>) {
+        node.next = self.head;
+        node.prev = None;
+        match self.head {
+            Some(mut head) => head.as_mut().prev = Some(node.into()),
+            None => {}
+        };
+        self.head = Some(node.into());
+        if self.tail.is_none() {
+            self.tail = Some(node.into());
         }
     }
 
-    /// Inserts an item into the list in a way that the list keeps being sorted.
-    /// Safety: This function is only safe as long as all pointers which are
-    /// stored inside the linked list are valid.
-    pub unsafe fn add_sorted(&mut self, item: *mut ListNode<T>)
+    /// Inserts a node into the list in a way that the list keeps being sorted.
+    /// Safety: This function is only safe as long as `node` is guaranteed to
+    /// get removed from the list before it gets moved or dropped.
+    /// In addition to this `node` may not be added to another other list before
+    /// it is removed from the current one.
+    pub unsafe fn add_sorted(&mut self, node: &mut ListNode<T>)
     where
         T: PartialOrd,
     {
-        if item.is_null() {
+        if self.head.is_none() {
+            // First node in the list
+            self.head = Some(node.into());
+            self.tail = Some(node.into());
             return;
         }
 
-        if self.head.is_null() {
-            // First item in the list
-            self.head = item;
-            self.tail = item;
-            return;
-        }
-
-        let mut prev: *mut ListNode<T> = null_mut();
+        let mut prev: Option<NonNull<ListNode<T>>> = None;
         let mut current = self.head;
 
-        while !current.is_null() {
-            if (*item).deref() < (*current).deref() {
-                // Need to insert before the current item
-                (*current).prev = item;
-                if !prev.is_null() {
-                    (*prev).next = item;
-                } else {
-                    // We are inserting at the beginning of the list
-                    self.head = item;
+        while let Some(mut current_node) = current {
+            if node.data < current_node.as_ref().data {
+                // Need to insert before the current node
+                current_node.as_mut().prev = Some(node.into());
+                match prev {
+                    Some(mut prev) => {
+                        prev.as_mut().next = Some(node.into());
+                    }
+                    None => {
+                        // We are inserting at the beginning of the list
+                        self.head = Some(node.into());
+                    }
                 }
-                (*item).next = current;
-                (*item).prev = prev;
+                node.next = current;
+                node.prev = prev;
                 return;
             }
             prev = current;
-            current = (*current).next;
+            current = current_node.as_ref().next;
         }
 
-        // We looped through the whole list and the item is bigger or equal
+        // We looped through the whole list and the nodes data is bigger or equal
         // than everything we found up to now.
         // Insert at the end. Since we checked before that the list isn't empty,
         // tail always has a value.
-        (*item).prev = self.tail;
-        (*item).next = null_mut();
-        (*self.tail).next = item;
-        self.tail = item;
+        node.prev = self.tail;
+        node.next = None;
+        self.tail.as_mut().unwrap().as_mut().next = Some(node.into());
+        self.tail = Some(node.into());
     }
 
-    /// Returns the first item in the linked list without removing it from the list
+    /// Returns the first node in the linked list without removing it from the list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
     /// The returned pointer is only guaranteed to be valid as long as the list
     /// is not mutated
-    pub fn peek_first(&self) -> *mut ListNode<T> {
-        self.head
+    pub fn peek_first(&self) -> Option<&mut ListNode<T>> {
+        // Safety: When the node was inserted it was promised that it is alive
+        // until it gets removed from the list.
+        // The returned node has a pointer which constrains it to the lifetime
+        // of the list. This is ok, since the Node is supposed to outlive
+        // its insertion in the list.
+        unsafe {
+            self.head
+                .map(|mut node| &mut *(node.as_mut() as *mut ListNode<T>))
+        }
     }
 
-    /// Returns the last item in the linked list without removing it from the list
+    /// Returns the last node in the linked list without removing it from the list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
     /// The returned pointer is only guaranteed to be valid as long as the list
     /// is not mutated
-    pub fn peek_last(&self) -> *mut ListNode<T> {
-        self.tail
+    pub fn peek_last(&self) -> Option<&mut ListNode<T>> {
+        // Safety: When the node was inserted it was promised that it is alive
+        // until it gets removed from the list.
+        // The returned node has a pointer which constrains it to the lifetime
+        // of the list. This is ok, since the Node is supposed to outlive
+        // its insertion in the list.
+        unsafe {
+            self.tail
+                .map(|mut node| &mut *(node.as_mut() as *mut ListNode<T>))
+        }
     }
 
-    /// Removes the last item from the linked list and returns it
-    /// Safety: This function is only safe as long as all pointers which are
-    /// stored inside the linked list are valid.
-    pub unsafe fn remove_last(&mut self) -> *mut ListNode<T> {
-        if self.tail.is_null() {
-            return null_mut();
-        }
+    /// Removes the first node from the linked list
+    pub fn remove_first(&mut self) -> Option<&mut ListNode<T>> {
+        // Safety: When the node was inserted it was promised that it is alive
+        // until it gets removed from the list
+        unsafe {
+            let mut head = self.head?;
+            self.head = head.as_mut().next;
 
-        let last = self.tail;
-        self.tail = (*last).prev;
-        if !(*last).prev.is_null() {
-            (*(*last).prev).next = null_mut();
-        } else {
-            // This was the last item in the list
-            self.head = null_mut();
-        }
+            let first_ref = head.as_mut();
+            match first_ref.next {
+                None => {
+                    // This was the only node in the list
+                    debug_assert_eq!(Some(first_ref.into()), self.tail);
+                    self.tail = None;
+                }
+                Some(mut next) => {
+                    next.as_mut().prev = None;
+                }
+            }
 
-        (*last).prev = null_mut();
-        (*last).next = null_mut();
-        last
+            first_ref.prev = None;
+            first_ref.next = None;
+            Some(&mut *(first_ref as *mut ListNode<T>))
+        }
     }
 
-    /// Removes all items from the linked list and returns a LinkedList which
-    /// contains all the items.
-    pub fn take(&mut self) -> LinkedList<T> {
-        let head = self.head;
-        let tail = self.tail;
-        self.head = null_mut();
-        self.tail = null_mut();
-        LinkedList::<T> { head, tail }
+    /// Removes the last node from the linked list and returns it
+    pub fn remove_last(&mut self) -> Option<&mut ListNode<T>> {
+        // Safety: When the node was inserted it was promised that it is alive
+        // until it gets removed from the list
+        unsafe {
+            let mut tail = self.tail?;
+            self.tail = tail.as_mut().prev;
+
+            let last_ref = tail.as_mut();
+            match last_ref.prev {
+                None => {
+                    // This was the last node in the list
+                    debug_assert_eq!(Some(last_ref.into()), self.head);
+                    self.head = None;
+                }
+                Some(mut prev) => {
+                    prev.as_mut().next = None;
+                }
+            }
+
+            last_ref.prev = None;
+            last_ref.next = None;
+            Some(&mut *(last_ref as *mut ListNode<T>))
+        }
     }
 
     /// Returns whether the linked list doesn not contain any node
     pub fn is_empty(&self) -> bool {
-        if !self.head.is_null() {
+        if !self.head.is_none() {
             return false;
         }
 
-        debug_assert!(self.tail.is_null());
+        debug_assert!(self.tail.is_none());
         true
     }
 
-    /// Removes the given item from the linked list.
-    /// Returns whether the item was removed.
-    /// Safety: This function is only safe as long as all pointers which are
-    /// stored inside the linked list are valid.
-    /// It is also only save if it is known that `item` is either part of this
-    /// list, or of no list at all. If `item` is part of another list, the
+    /// Removes the given `node` from the linked list.
+    /// Returns whether the `node` was removed.
+    /// It is also only save if it is known that the `node` is either part of this
+    /// list, or of no list at all. If `node` is part of another list, the
     /// behavior is undefined.
-    pub unsafe fn remove(&mut self, item: *mut ListNode<T>) -> bool {
-        if item.is_null() {
-            return false;
-        }
-
-        let prev = (*item).prev;
-        if prev.is_null() {
-            // This might be the first item in the list. If it is not, the
-            // item is not in the list at all. Since our precondition is that
-            // the item must either be in this list or in no list, we check that
-            // the item is really in no list.
-            if self.head != item {
-                debug_assert!((*item).next.is_null());
-                return false;
+    pub unsafe fn remove(&mut self, node: &mut ListNode<T>) -> bool {
+        match node.prev {
+            None => {
+                // This might be the first node in the list. If it is not, the
+                // node is not in the list at all. Since our precondition is that
+                // the node must either be in this list or in no list, we check that
+                // the node is really in no list.
+                if self.head != Some(node.into()) {
+                    debug_assert!(node.next.is_none());
+                    return false;
+                }
+                self.head = node.next;
             }
-            self.head = (*item).next;
-        } else {
-            debug_assert_eq!((*prev).next, item);
-            (*prev).next = (*item).next;
+            Some(mut prev) => {
+                debug_assert_eq!(prev.as_ref().next, Some(node.into()));
+                prev.as_mut().next = node.next;
+            }
         }
 
-        let next = (*item).next;
-        if next.is_null() {
-            // This must be the last item in our list. Otherwise the list
-            // is inconsistent.
-            debug_assert_eq!(self.tail, item);
-            self.tail = (*item).prev;
-        } else {
-            debug_assert_eq!((*next).prev, item);
-            (*next).prev = (*item).prev;
+        match node.next {
+            None => {
+                // This must be the last node in our list. Otherwise the list
+                // is inconsistent.
+                debug_assert_eq!(self.tail, Some(node.into()));
+                self.tail = node.prev;
+            }
+            Some(mut next) => {
+                debug_assert_eq!(next.as_mut().prev, Some(node.into()));
+                next.as_mut().prev = node.prev;
+            }
         }
 
-        (*item).next = null_mut();
-        (*item).prev = null_mut();
+        node.next = None;
+        node.prev = None;
 
         true
     }
-}
 
-/// An iterator over an intrusively linked list
-pub struct LinkedListIterator<T> {
-    current: *mut ListNode<T>,
-}
+    /// Drains the list iby calling a callback on each list node
+    ///
+    /// The method does not return an iterator since stopping or deferring
+    /// draining the list is not permitted. If the method would push nodes to
+    /// an iterator we could not guarantee that the nodes do not get utilized
+    /// after having been removed from the list anymore.
+    pub fn drain<F>(&mut self, mut func: F)
+    where
+        F: FnMut(&mut ListNode<T>),
+    {
+        let mut current = self.head;
+        self.head = None;
+        self.tail = None;
 
-impl<T> Iterator for LinkedListIterator<T> {
-    type Item = *mut ListNode<T>;
+        while let Some(mut node) = current {
+            // Safety: The nodes have not been removed from the list yet and must
+            // therefore contain valid data. The nodes can also not be added to
+            // the list again during iteration, since the list is mutably borrowed.
+            unsafe {
+                let node_ref = node.as_mut();
+                current = node_ref.next;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current.is_null() {
-            return None;
+                node_ref.next = None;
+                node_ref.prev = None;
+
+                // Note: We do not reset the pointers from the next element in the
+                // list to the current one since we will iterate over the whole
+                // list anyway, and therefore clean up all pointers.
+
+                func(node_ref);
+            }
         }
+    }
 
-        let node = self.current;
-        // Safety: This is safe as long as the linked list is intact, which was
-        // already required through the unsafe when creating the iterator.
-        unsafe {
-            self.current = (*self.current).next;
+    /// Drains the list in reverse order by calling a callback on each list node
+    ///
+    /// The method does not return an iterator since stopping or deferring
+    /// draining the list is not permitted. If the method would push nodes to
+    /// an iterator we could not guarantee that the nodes do not get utilized
+    /// after having been removed from the list anymore.
+    pub fn reverse_drain<F>(&mut self, mut func: F)
+    where
+        F: FnMut(&mut ListNode<T>),
+    {
+        let mut current = self.tail;
+        self.head = None;
+        self.tail = None;
+
+        while let Some(mut node) = current {
+            // Safety: The nodes have not been removed from the list yet and must
+            // therefore contain valid data. The nodes can also not be added to
+            // the list again during iteration, since the list is mutably borrowed.
+            unsafe {
+                let node_ref = node.as_mut();
+                current = node_ref.prev;
+
+                node_ref.next = None;
+                node_ref.prev = None;
+
+                // Note: We do not reset the pointers from the next element in the
+                // list to the current one since we will iterate over the whole
+                // list anyway, and therefore clean up all pointers.
+
+                func(node_ref);
+            }
         }
-        Some(node)
     }
 }
 
-/// An iterator over an intrusively linked list
-pub struct LinkedListReverseIterator<T> {
-    current: *mut ListNode<T>,
-}
-
-impl<T> Iterator for LinkedListReverseIterator<T> {
-    type Item = *mut ListNode<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current.is_null() {
-            return None;
-        }
-
-        let node = self.current;
-        // Safety: This is safe as long as the linked list is intact, which was
-        // already required through the unsafe when creating the iterator.
-        unsafe {
-            self.current = (*self.current).prev;
-        }
-        Some(node)
-    }
-}
-
-#[cfg(test)]
-#[cfg(feature = "std")] // Tests make use of Vec at the moment
+#[cfg(all(test, feature = "std"))] // Tests make use of Vec at the moment
 mod tests {
     use super::*;
 
-    unsafe fn collect_list<T: Copy>(list: LinkedList<T>) -> Vec<T> {
-        list.into_iter().map(|item| (*(*item).deref())).collect()
+    fn collect_list<T: Copy>(mut list: LinkedList<T>) -> Vec<T> {
+        let mut result = Vec::new();
+        list.drain(|node| {
+            result.push(**node);
+        });
+        result
     }
 
-    unsafe fn collect_reverse_list<T: Copy>(list: LinkedList<T>) -> Vec<T> {
-        list.into_reverse_iter()
-            .map(|item| (*(*item).deref()))
-            .collect()
+    fn collect_reverse_list<T: Copy>(mut list: LinkedList<T>) -> Vec<T> {
+        let mut result = Vec::new();
+        list.reverse_drain(|node| {
+            result.push(**node);
+        });
+        result
     }
 
     unsafe fn add_nodes(
@@ -313,13 +364,13 @@ mod tests {
         nodes: &mut [&mut ListNode<i32>],
     ) {
         for node in nodes.iter_mut() {
-            list.add_front(*node);
+            list.add_front(node);
         }
     }
 
-    unsafe fn assert_clean<T>(node: *mut ListNode<T>) {
-        assert!((*node).next.is_null());
-        assert!((*node).prev.is_null());
+    unsafe fn assert_clean<T>(node: &mut ListNode<T>) {
+        assert!(node.next.is_none());
+        assert!(node.prev.is_none());
     }
 
     #[test]
@@ -332,12 +383,12 @@ mod tests {
             let mut setup = |list: &mut LinkedList<i32>| {
                 assert_eq!(true, list.is_empty());
                 list.add_front(&mut c);
-                assert_eq!(31, *(*list.peek_first()).deref());
+                assert_eq!(31, **list.peek_first().unwrap());
                 assert_eq!(false, list.is_empty());
                 list.add_front(&mut b);
-                assert_eq!(7, *(*list.peek_first()).deref());
+                assert_eq!(7, **list.peek_first().unwrap());
                 list.add_front(&mut a);
-                assert_eq!(5, *(*list.peek_first()).deref());
+                assert_eq!(5, **list.peek_first().unwrap());
             };
 
             let mut list = LinkedList::new();
@@ -421,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn take_items() {
+    fn drain_and_collect() {
         unsafe {
             let mut a = ListNode::new(5);
             let mut b = ListNode::new(7);
@@ -430,10 +481,7 @@ mod tests {
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
 
-            let taken = list.take();
-            let items: Vec<i32> = collect_list(list);
-            assert!(items.is_empty());
-            let taken_items: Vec<i32> = collect_list(taken);
+            let taken_items: Vec<i32> = collect_list(list);
             assert_eq!([5, 7, 31].to_vec(), taken_items);
         }
     }
@@ -449,64 +497,66 @@ mod tests {
             add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
 
             let last = list.peek_last();
-            assert_eq!(31, *(*last).deref());
+            assert_eq!(31, **last.unwrap());
             list.remove_last();
 
             let last = list.peek_last();
-            assert_eq!(7, *(*last).deref());
+            assert_eq!(7, **last.unwrap());
             list.remove_last();
 
             let last = list.peek_last();
-            assert_eq!(5, *(*last).deref());
+            assert_eq!(5, **last.unwrap());
             list.remove_last();
 
             let last = list.peek_last();
-            assert!(last.is_null());
+            assert!(last.is_none());
         }
     }
 
     #[test]
-    fn remove_last() {
+    fn remove_first() {
         unsafe {
+            // We iterate forward and backwards through the manipulated lists
+            // to make sure pointers in both directions are still ok.
             let mut a = ListNode::new(5);
             let mut b = ListNode::new(7);
             let mut c = ListNode::new(31);
 
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-            let removed = list.remove_last();
+            let removed = list.remove_first().unwrap();
             assert_clean(removed);
             assert!(!list.is_empty());
             let items: Vec<i32> = collect_list(list);
-            assert_eq!([5, 7].to_vec(), items);
+            assert_eq!([7, 31].to_vec(), items);
 
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-            let removed = list.remove_last();
+            let removed = list.remove_first().unwrap();
             assert_clean(removed);
             assert!(!list.is_empty());
             let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([7, 5].to_vec(), items);
+            assert_eq!([31, 7].to_vec(), items);
 
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut b, &mut a]);
-            let removed = list.remove_last();
+            let removed = list.remove_first().unwrap();
             assert_clean(removed);
             assert!(!list.is_empty());
             let items: Vec<i32> = collect_list(list);
-            assert_eq!([5].to_vec(), items);
+            assert_eq!([7].to_vec(), items);
 
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut b, &mut a]);
-            let removed = list.remove_last();
+            let removed = list.remove_first().unwrap();
             assert_clean(removed);
             assert!(!list.is_empty());
             let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([5].to_vec(), items);
+            assert_eq!([7].to_vec(), items);
 
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut a]);
-            let removed = list.remove_last();
+            let removed = list.remove_first().unwrap();
             assert_clean(removed);
             assert!(list.is_empty());
             let items: Vec<i32> = collect_list(list);
@@ -514,7 +564,66 @@ mod tests {
 
             let mut list = LinkedList::new();
             add_nodes(&mut list, &mut [&mut a]);
-            let removed = list.remove_last();
+            let removed = list.remove_first().unwrap();
+            assert_clean(removed);
+            assert!(list.is_empty());
+            let items: Vec<i32> = collect_reverse_list(list);
+            assert!(items.is_empty());
+        }
+    }
+
+    #[test]
+    fn remove_last() {
+        unsafe {
+            // We iterate forward and backwards through the manipulated lists
+            // to make sure pointers in both directions are still ok.
+            let mut a = ListNode::new(5);
+            let mut b = ListNode::new(7);
+            let mut c = ListNode::new(31);
+
+            let mut list = LinkedList::new();
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
+            let removed = list.remove_last().unwrap();
+            assert_clean(removed);
+            assert!(!list.is_empty());
+            let items: Vec<i32> = collect_list(list);
+            assert_eq!([5, 7].to_vec(), items);
+
+            let mut list = LinkedList::new();
+            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
+            let removed = list.remove_last().unwrap();
+            assert_clean(removed);
+            assert!(!list.is_empty());
+            let items: Vec<i32> = collect_reverse_list(list);
+            assert_eq!([7, 5].to_vec(), items);
+
+            let mut list = LinkedList::new();
+            add_nodes(&mut list, &mut [&mut b, &mut a]);
+            let removed = list.remove_last().unwrap();
+            assert_clean(removed);
+            assert!(!list.is_empty());
+            let items: Vec<i32> = collect_list(list);
+            assert_eq!([5].to_vec(), items);
+
+            let mut list = LinkedList::new();
+            add_nodes(&mut list, &mut [&mut b, &mut a]);
+            let removed = list.remove_last().unwrap();
+            assert_clean(removed);
+            assert!(!list.is_empty());
+            let items: Vec<i32> = collect_reverse_list(list);
+            assert_eq!([5].to_vec(), items);
+
+            let mut list = LinkedList::new();
+            add_nodes(&mut list, &mut [&mut a]);
+            let removed = list.remove_last().unwrap();
+            assert_clean(removed);
+            assert!(list.is_empty());
+            let items: Vec<i32> = collect_list(list);
+            assert!(items.is_empty());
+
+            let mut list = LinkedList::new();
+            add_nodes(&mut list, &mut [&mut a]);
+            let removed = list.remove_last().unwrap();
             assert_clean(removed);
             assert!(list.is_empty());
             let items: Vec<i32> = collect_reverse_list(list);
@@ -534,23 +643,23 @@ mod tests {
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
-                assert_clean(&mut a);
+                assert_clean((&mut a).into());
                 // a should be no longer there and can't be removed twice
                 assert_eq!(false, list.remove(&mut a));
-                assert_eq!(&mut b as *mut ListNode<i32>, list.head);
-                assert_eq!(&mut c as *mut ListNode<i32>, b.next);
-                assert_eq!(&mut b as *mut ListNode<i32>, c.prev);
+                assert_eq!(Some((&mut b).into()), list.head);
+                assert_eq!(Some((&mut c).into()), b.next);
+                assert_eq!(Some((&mut b).into()), c.prev);
                 let items: Vec<i32> = collect_list(list);
                 assert_eq!([7, 31].to_vec(), items);
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
-                assert_clean(&mut a);
+                assert_clean((&mut a).into());
                 // a should be no longer there and can't be removed twice
                 assert_eq!(false, list.remove(&mut a));
-                assert_eq!(&mut c as *mut ListNode<i32>, b.next);
-                assert_eq!(&mut b as *mut ListNode<i32>, c.prev);
+                assert_eq!(Some((&mut c).into()), b.next);
+                assert_eq!(Some((&mut b).into()), c.prev);
                 let items: Vec<i32> = collect_reverse_list(list);
                 assert_eq!([31, 7].to_vec(), items);
             }
@@ -560,18 +669,18 @@ mod tests {
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
-                assert_clean(&mut b);
-                assert_eq!(&mut c as *mut ListNode<i32>, a.next);
-                assert_eq!(&mut a as *mut ListNode<i32>, c.prev);
+                assert_clean((&mut b).into());
+                assert_eq!(Some((&mut c).into()), a.next);
+                assert_eq!(Some((&mut a).into()), c.prev);
                 let items: Vec<i32> = collect_list(list);
                 assert_eq!([5, 31].to_vec(), items);
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
-                assert_clean(&mut b);
-                assert_eq!(&mut c as *mut ListNode<i32>, a.next);
-                assert_eq!(&mut a as *mut ListNode<i32>, c.prev);
+                assert_clean((&mut b).into());
+                assert_eq!(Some((&mut c).into()), a.next);
+                assert_eq!(Some((&mut a).into()), c.prev);
                 let items: Vec<i32> = collect_reverse_list(list);
                 assert_eq!([31, 5].to_vec(), items);
             }
@@ -581,18 +690,18 @@ mod tests {
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut c));
-                assert_clean(&mut c);
-                assert!(b.next.is_null());
-                assert_eq!(&mut b as *mut ListNode<i32>, list.tail);
+                assert_clean((&mut c).into());
+                assert!(b.next.is_none());
+                assert_eq!(Some((&mut b).into()), list.tail);
                 let items: Vec<i32> = collect_list(list);
                 assert_eq!([5, 7].to_vec(), items);
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut c));
-                assert_clean(&mut c);
-                assert!(b.next.is_null());
-                assert_eq!(&mut b as *mut ListNode<i32>, list.tail);
+                assert_clean((&mut c).into());
+                assert!(b.next.is_none());
+                assert_eq!(Some((&mut b).into()), list.tail);
                 let items: Vec<i32> = collect_reverse_list(list);
                 assert_eq!([7, 5].to_vec(), items);
             }
@@ -602,26 +711,26 @@ mod tests {
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
-                assert_clean(&mut a);
+                assert_clean((&mut a).into());
                 // a should be no longer there and can't be removed twice
                 assert_eq!(false, list.remove(&mut a));
-                assert_eq!(&mut b as *mut ListNode<i32>, list.head);
-                assert_eq!(&mut b as *mut ListNode<i32>, list.tail);
-                assert!(b.next.is_null());
-                assert!(b.prev.is_null());
+                assert_eq!(Some((&mut b).into()), list.head);
+                assert_eq!(Some((&mut b).into()), list.tail);
+                assert!(b.next.is_none());
+                assert!(b.prev.is_none());
                 let items: Vec<i32> = collect_list(list);
                 assert_eq!([7].to_vec(), items);
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut a));
-                assert_clean(&mut a);
+                assert_clean((&mut a).into());
                 // a should be no longer there and can't be removed twice
                 assert_eq!(false, list.remove(&mut a));
-                assert_eq!(&mut b as *mut ListNode<i32>, list.head);
-                assert_eq!(&mut b as *mut ListNode<i32>, list.tail);
-                assert!(b.next.is_null());
-                assert!(b.prev.is_null());
+                assert_eq!(Some((&mut b).into()), list.head);
+                assert_eq!(Some((&mut b).into()), list.tail);
+                assert!(b.next.is_none());
+                assert!(b.prev.is_none());
                 let items: Vec<i32> = collect_reverse_list(list);
                 assert_eq!([7].to_vec(), items);
             }
@@ -631,22 +740,22 @@ mod tests {
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
-                assert_clean(&mut b);
-                assert_eq!(&mut a as *mut ListNode<i32>, list.head);
-                assert_eq!(&mut a as *mut ListNode<i32>, list.tail);
-                assert!(a.next.is_null());
-                assert!(a.prev.is_null());
+                assert_clean((&mut b).into());
+                assert_eq!(Some((&mut a).into()), list.head);
+                assert_eq!(Some((&mut a).into()), list.tail);
+                assert!(a.next.is_none());
+                assert!(a.prev.is_none());
                 let items: Vec<i32> = collect_list(list);
                 assert_eq!([5].to_vec(), items);
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
                 assert_eq!(true, list.remove(&mut b));
-                assert_clean(&mut b);
-                assert_eq!(&mut a as *mut ListNode<i32>, list.head);
-                assert_eq!(&mut a as *mut ListNode<i32>, list.tail);
-                assert!(a.next.is_null());
-                assert!(a.prev.is_null());
+                assert_clean((&mut b).into());
+                assert_eq!(Some((&mut a).into()), list.head);
+                assert_eq!(Some((&mut a).into()), list.tail);
+                assert!(a.next.is_none());
+                assert!(a.prev.is_none());
                 let items: Vec<i32> = collect_reverse_list(list);
                 assert_eq!([5].to_vec(), items);
             }
@@ -656,9 +765,9 @@ mod tests {
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut a]);
                 assert_eq!(true, list.remove(&mut a));
-                assert_clean(&mut a);
-                assert!(list.head.is_null());
-                assert!(list.tail.is_null());
+                assert_clean((&mut a).into());
+                assert!(list.head.is_none());
+                assert!(list.tail.is_none());
                 let items: Vec<i32> = collect_list(list);
                 assert!(items.is_empty());
             }
@@ -669,14 +778,6 @@ mod tests {
                 list.add_front(&mut b);
                 list.add_front(&mut a);
                 assert_eq!(false, list.remove(&mut c));
-            }
-
-            {
-                // Remove null
-                let mut list = LinkedList::new();
-                list.add_front(&mut b);
-                list.add_front(&mut a);
-                assert_eq!(false, list.remove(null_mut()));
             }
         }
     }

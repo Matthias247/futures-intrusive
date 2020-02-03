@@ -72,18 +72,14 @@ impl EventState {
             // only move it from the blocked into the ready state and not have
             // further side effects.
 
-            let waiters = self.waiters.take();
-
-            unsafe {
-                // Use a reverse iterator, so that the oldest waiter gets
-                // scheduled first
-                for waiter in waiters.into_reverse_iter() {
-                    if let Some(handle) = (*waiter).task.take() {
-                        handle.wake();
-                    }
-                    (*waiter).state = PollState::Done;
+            // Use a reverse iterator, so that the oldest waiter gets
+            // scheduled first
+            self.waiters.reverse_drain(|waiter| {
+                if let Some(handle) = waiter.task.take() {
+                    handle.wake();
                 }
-            }
+                waiter.state = PollState::Done;
+            });
         }
     }
 
@@ -136,6 +132,8 @@ impl EventState {
         // WaitForEventFuture only needs to get removed if it has been added to
         // the wait queue of the Event. This has happened in the PollState::Waiting case.
         if let PollState::Waiting = wait_node.state {
+            // Safety: Due to the state, we know that the node must be part
+            // of the waiter list
             if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the WaitQueueEntry got moved after the initial poll.

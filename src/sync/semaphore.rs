@@ -71,50 +71,42 @@ impl SemaphoreState {
         let mut available = self.permits;
 
         loop {
-            let last_waiter = self.waiters.peek_last();
-            if last_waiter.is_null() {
-                return;
-            }
-
-            // Safety: We checked that the pointer is not null.
-            // The ListNode also is guaranteed to be valid inside the Mutex, since
-            // waiters need to remove themselves from the wait queue.
-            unsafe {
-                let last_waiter: &mut ListNode<WaitQueueEntry> =
-                    &mut (*last_waiter);
-
-                // Check if enough permits are available for this waiter.
-                // If not then a wakeup attempt won't be successful.
-                if available < last_waiter.required_permits {
-                    return;
-                }
-                available -= last_waiter.required_permits;
-
-                // Notify the waiter that it can try to acquire the semaphore again.
-                // The notification gets tracked inside the waiter.
-                // If the waiter aborts it's wait (drops the future), another task
-                // must be woken.
-                if last_waiter.state != PollState::Notified {
-                    last_waiter.state = PollState::Notified;
-
-                    let task = &last_waiter.task;
-                    if let Some(ref handle) = task {
-                        handle.wake_by_ref();
+            match self.waiters.peek_last() {
+                None => return,
+                Some(last_waiter) => {
+                    // Check if enough permits are available for this waiter.
+                    // If not then a wakeup attempt won't be successful.
+                    if available < last_waiter.required_permits {
+                        return;
                     }
-                }
+                    available -= last_waiter.required_permits;
 
-                // In the case of a non-fair semaphore, the waiters are directly
-                // removed from the semaphores wait queue when woken.
-                // That avoids having to remove the wait element later.
-                if !self.is_fair {
-                    self.waiters.remove_last();
-                } else {
-                    // For a fair Semaphore we never wake more than 1 task.
-                    // That one needs to acquire the Semaphore.
-                    // TODO: We actually should be able to wake more, since
-                    // it's guaranteed that both tasks could make progress.
-                    // However the we currently can't peek iterate in reverse order.
-                    return;
+                    // Notify the waiter that it can try to acquire the semaphore again.
+                    // The notification gets tracked inside the waiter.
+                    // If the waiter aborts it's wait (drops the future), another task
+                    // must be woken.
+                    if last_waiter.state != PollState::Notified {
+                        last_waiter.state = PollState::Notified;
+
+                        let task = &last_waiter.task;
+                        if let Some(ref handle) = task {
+                            handle.wake_by_ref();
+                        }
+                    }
+
+                    // In the case of a non-fair semaphore, the waiters are directly
+                    // removed from the semaphores wait queue when woken.
+                    // That avoids having to remove the wait element later.
+                    if !self.is_fair {
+                        self.waiters.remove_last();
+                    } else {
+                        // For a fair Semaphore we never wake more than 1 task.
+                        // That one needs to acquire the Semaphore.
+                        // TODO: We actually should be able to wake more, since
+                        // it's guaranteed that both tasks could make progress.
+                        // However the we currently can't peek iterate in reverse order.
+                        return;
+                    }
                 }
             }
         }
@@ -197,6 +189,8 @@ impl SemaphoreState {
                         wait_node.state = PollState::Done;
                         // Since this waiter has been registered before, it must
                         // get removed from the waiter list.
+                        // Safety: Due to the state, we know that the node must be part
+                        // of the waiter list
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
                     } else {
@@ -216,6 +210,8 @@ impl SemaphoreState {
                     if self.is_fair {
                         // In a fair Semaphore, the WaitQueueEntry is kept in the
                         // linked list and must be removed here
+                        // Safety: Due to the state, we know that the node must be part
+                        // of the waiter list
                         self.force_remove_waiter(wait_node);
                     }
                     self.permits -= wait_node.required_permits;
@@ -252,7 +248,7 @@ impl SemaphoreState {
     /// waiter is no longer valid.
     unsafe fn force_remove_waiter(
         &mut self,
-        wait_node: *mut ListNode<WaitQueueEntry>,
+        wait_node: &mut ListNode<WaitQueueEntry>,
     ) {
         if !self.waiters.remove(wait_node) {
             // Panic if the address isn't found. This can only happen if the contract was
@@ -274,6 +270,8 @@ impl SemaphoreState {
                 if self.is_fair {
                     // In a fair Mutex, the WaitQueueEntry is kept in the
                     // linked list and must be removed here
+                    // Safety: Due to the state, we know that the node must be part
+                    // of the waiter list
                     unsafe { self.force_remove_waiter(wait_node) };
                 }
                 wait_node.state = PollState::Done;
@@ -282,6 +280,8 @@ impl SemaphoreState {
             }
             PollState::Waiting => {
                 // Remove the WaitQueueEntry from the linked list
+                // Safety: Due to the state, we know that the node must be part
+                // of the waiter list
                 unsafe { self.force_remove_waiter(wait_node) };
                 wait_node.state = PollState::Done;
             }
