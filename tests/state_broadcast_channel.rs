@@ -129,6 +129,18 @@ macro_rules! gen_state_broadcast_tests {
             }
 
             #[test]
+            fn try_receive() {
+                let channel = ChannelType::new();
+                let state_id = StateId::new();
+
+                assert!(channel.try_receive(state_id).is_none());
+                assert_send(&channel, 0);
+
+                let (state_id, _) = channel.try_receive(state_id).unwrap();
+                assert!(channel.try_receive(state_id).is_none());
+            }
+
+            #[test]
             fn send_unblocks_receive() {
                 let channel = ChannelType::new();
                 let (waker, count) = new_count_waker();
@@ -444,5 +456,17 @@ mod if_std {
         drop(receiver2);
         assert_eq!(Err(ChannelSendError(5)), sender.send(5));
         assert_eq!(Err(ChannelSendError(7)), sender2.send(7));
+    }
+
+    #[test]
+    fn try_receive() {
+        let (sender, receiver) = state_broadcast_channel::<i32>();
+        let state_id = StateId::new();
+
+        assert!(receiver.try_receive(state_id).is_none());
+        sender.send(1).unwrap();
+
+        let (state_id, _) = receiver.try_receive(state_id).unwrap();
+        assert!(receiver.try_receive(state_id).is_none());
     }
 }

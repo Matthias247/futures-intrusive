@@ -63,7 +63,7 @@ impl RecvWaitQueueEntry {
 /// Adapter trait that allows Futures to generically interact with Channel
 /// implementations via dynamic dispatch.
 pub trait ChannelReceiveAccess<T> {
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
@@ -136,7 +136,7 @@ impl<'a, MutexType, T: Clone> Future for StateReceiveFuture<'a, MutexType, T> {
             .expect("polled StateReceiveFuture after completion");
 
         let poll_res =
-            unsafe { channel.try_receive(&mut mut_self.wait_node, cx) };
+            unsafe { channel.receive_or_register(&mut mut_self.wait_node, cx) };
 
         if poll_res.is_ready() {
             // A value was available
@@ -244,12 +244,21 @@ where
         CloseStatus::NewlyClosed
     }
 
+    fn try_receive(&mut self, state_id: StateId) -> Option<(StateId, T)> {
+        let val = self.value.as_ref()?;
+        if state_id < self.state_id {
+            Some((self.state_id, val.clone()))
+        } else {
+            None
+        }
+    }
+
     /// Tries to read the value from the channel.
     /// If the value isn't available yet, the StateReceiveFuture gets added to the
     /// wait queue at the channel, and will be signalled once ready.
     /// This function is only safe as long as the `wait_node`s address is guaranteed
     /// to be stable until it gets removed from the queue.
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &mut self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
@@ -394,17 +403,25 @@ where
             _phantom: PhantomData,
         }
     }
+
+    /// Attempt to retrieve a value whose `StateId` is greater than the one provided.
+    ///
+    /// Returns `None` if no value is found in the channel, or if the current `StateId`
+    /// of the value is less or equal to the one provided.
+    pub fn try_receive(&self, state_id: StateId) -> Option<(StateId, T)> {
+        self.inner.lock().try_receive(state_id)
+    }
 }
 
 impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T>
     for GenericStateBroadcastChannel<MutexType, T>
 {
-    unsafe fn try_receive(
+    unsafe fn receive_or_register(
         &self,
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<(StateId, T)>> {
-        self.inner.lock().try_receive(wait_node, cx)
+        self.inner.lock().receive_or_register(wait_node, cx)
     }
 
     fn remove_receive_waiter(
@@ -467,12 +484,12 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone + 'static,
         {
-            unsafe fn try_receive(
+            unsafe fn receive_or_register(
                 &self,
                 wait_node: &mut ListNode<RecvWaitQueueEntry>,
                 cx: &mut Context<'_>,
             ) -> Poll<Option<(StateId, T)>> {
-                self.channel.try_receive(wait_node, cx)
+                self.channel.receive_or_register(wait_node, cx)
             }
 
             fn remove_receive_waiter(
@@ -539,8 +556,9 @@ mod if_alloc {
                     .take()
                     .expect("polled StateReceiveFuture after completion");
 
-                let poll_res =
-                    unsafe { channel.try_receive(&mut mut_self.wait_node, cx) };
+                let poll_res = unsafe {
+                    channel.receive_or_register(&mut mut_self.wait_node, cx)
+                };
 
                 if poll_res.is_ready() {
                     // A value was available
@@ -760,6 +778,17 @@ mod if_alloc {
                     wait_node: ListNode::new(RecvWaitQueueEntry::new(state_id)),
                     _phantom: PhantomData,
                 }
+            }
+
+            /// Attempt to retrieve a value whose `StateId` is greater than the one provided.
+            ///
+            /// Returns `None` if no value is found in the channel, or if the current `StateId`
+            /// of the value is less or equal to the one provided.
+            pub fn try_receive(
+                &self,
+                state_id: StateId,
+            ) -> Option<(StateId, T)> {
+                self.inner.channel.try_receive(state_id)
             }
         }
 
