@@ -430,6 +430,20 @@ mod if_alloc {
             pub(crate) _phantom: PhantomData<MutexType>,
         }
 
+        impl<MutexType, T> ChannelSendFuture<MutexType, T> {
+            /// Tries to cancel the ongoing send operation
+            pub fn cancel(&mut self) -> Option<T> {
+                let channel = self.channel.take();
+                match channel {
+                    None => None,
+                    Some(channel) => {
+                        channel.remove_send_waiter(&mut self.wait_node);
+                        self.wait_node.value.take()
+                    }
+                }
+            }
+        }
+
         // Safety: Channel futures can be sent between threads as long as the underlying
         // channel is thread-safe (Sync), which allows to poll/register/unregister from
         // a different thread.

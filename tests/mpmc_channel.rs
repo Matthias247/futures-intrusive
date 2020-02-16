@@ -1075,6 +1075,26 @@ mod if_std {
 
     gen_mpmc_tests!(mpmc_channel_tests, Channel, UnbufferedChannel);
 
+    macro_rules! assert_receive {
+        ($cx:ident, $receiver:expr, $value: expr) => {
+            let receive_fut = $receiver.receive();
+            pin_mut!(receive_fut);
+            assert!(!receive_fut.as_mut().is_terminated());
+
+            assert_receive_done($cx, &mut receive_fut, $value);
+        };
+    }
+
+    macro_rules! assert_send {
+        ($cx:ident, $sender:expr, $value: expr) => {
+            let send_fut = $sender.send($value);
+            pin_mut!(send_fut);
+            assert!(!send_fut.as_mut().is_terminated());
+
+            assert_send_done($cx, &mut send_fut, Ok(()));
+        };
+    }
+
     fn is_send<T: Send>(_: &T) {}
 
     fn is_send_value<T: Send>(_: T) {}
@@ -1412,5 +1432,119 @@ mod if_std {
             assert_next_done(cx, &mut stream, None);
             assert_eq!(count, 11);
         }
+    }
+
+    #[test]
+    fn cancel_send_mid_wait() {
+        let (sender, receiver) = channel::<i32>(3);
+        let (waker, count) = new_count_waker();
+        let cx = &mut Context::from_waker(&waker);
+
+        assert_send!(cx, &sender, 5);
+        assert_send!(cx, &sender, 6);
+        assert_send!(cx, &sender, 7);
+
+        {
+            // Cancel a wait in between other waits
+            // In order to arbitrarily drop a non movable future we have to box and pin it
+            let mut poll1 = Box::pin(sender.send(8));
+            let mut poll2 = Box::pin(sender.send(9));
+            let mut poll3 = Box::pin(sender.send(10));
+            let mut poll4 = Box::pin(sender.send(11));
+            let mut poll5 = Box::pin(sender.send(12));
+
+            assert!(poll1.as_mut().poll(cx).is_pending());
+            assert!(poll2.as_mut().poll(cx).is_pending());
+            assert!(poll3.as_mut().poll(cx).is_pending());
+            assert!(poll4.as_mut().poll(cx).is_pending());
+            assert!(poll5.as_mut().poll(cx).is_pending());
+            assert!(!poll1.is_terminated());
+            assert!(!poll2.is_terminated());
+            assert!(!poll3.is_terminated());
+            assert!(!poll4.is_terminated());
+            assert!(!poll5.is_terminated());
+
+            // Cancel 2 futures. Only the remaining ones should get completed
+            // Safety: We are not using these pins again so this is safe.
+            unsafe { std::pin::Pin::into_inner_unchecked(poll2).cancel() };
+            unsafe { std::pin::Pin::into_inner_unchecked(poll4).cancel() };
+
+            assert!(poll1.as_mut().poll(cx).is_pending());
+            assert!(poll3.as_mut().poll(cx).is_pending());
+            assert!(poll5.as_mut().poll(cx).is_pending());
+
+            assert_receive!(cx, &receiver, Some(5));
+
+            assert_eq!(count, 1);
+            assert_send_done(cx, &mut poll1.as_mut(), Ok(()));
+            assert!(poll3.as_mut().poll(cx).is_pending());
+            assert!(poll5.as_mut().poll(cx).is_pending());
+
+            assert_receive!(cx, &receiver, Some(6));
+            assert_receive!(cx, &receiver, Some(7));
+
+            assert_eq!(count, 3);
+            assert_send_done(cx, &mut poll3.as_mut(), Ok(()));
+            assert_send_done(cx, &mut poll5.as_mut(), Ok(()));
+        }
+
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn cancel_send_end_wait() {
+        let (sender, receiver) = channel::<i32>(3);
+        let (waker, count) = new_count_waker();
+        let cx = &mut Context::from_waker(&waker);
+
+        assert_send!(cx, &sender, 100);
+        assert_send!(cx, &sender, 101);
+        assert_send!(cx, &sender, 102);
+
+        let poll1 = sender.send(1);
+        let poll2 = sender.send(2);
+        let poll3 = sender.send(3);
+        let poll4 = sender.send(4);
+
+        pin_mut!(poll1);
+        pin_mut!(poll2);
+        pin_mut!(poll3);
+        pin_mut!(poll4);
+
+        assert!(poll1.as_mut().poll(cx).is_pending());
+        assert!(poll2.as_mut().poll(cx).is_pending());
+
+        // Start polling some wait handles which get cancelled
+        // before new ones are attached
+        let poll5 = sender.send(5);
+        let poll6 = sender.send(6);
+        pin_mut!(poll5);
+        pin_mut!(poll6);
+        assert!(poll5.as_mut().poll(cx).is_pending());
+        assert!(poll6.as_mut().poll(cx).is_pending());
+
+        // Cancel 2 futures. Only the remaining ones should get completed
+        // Safety: We are not using these pins again so this is safe.
+        unsafe { std::pin::Pin::into_inner_unchecked(poll5).cancel() };
+        unsafe { std::pin::Pin::into_inner_unchecked(poll6).cancel() };
+
+        assert!(poll3.as_mut().poll(cx).is_pending());
+        assert!(poll4.as_mut().poll(cx).is_pending());
+
+        assert_receive!(cx, &receiver, Some(100));
+        assert_receive!(cx, &receiver, Some(101));
+        assert_receive!(cx, &receiver, Some(102));
+
+        assert_send_done(cx, &mut poll1, Ok(()));
+        assert_send_done(cx, &mut poll2, Ok(()));
+        assert_send_done(cx, &mut poll3, Ok(()));
+
+        assert!(receiver.close().is_newly_closed());
+        assert_receive!(cx, &receiver, Some(1));
+        assert_receive!(cx, &receiver, Some(2));
+        assert_receive!(cx, &receiver, Some(3));
+        assert_send_done(cx, &mut poll4, Err(ChannelSendError(4)));
+
+        assert_eq!(count, 4);
     }
 }
