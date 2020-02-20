@@ -14,17 +14,17 @@ use core::marker::PhantomData;
 use futures_core::task::{Context, Poll};
 use lock_api::{Mutex, RawMutex};
 
-unsafe fn wake_waiters(waiters: LinkedList<RecvWaitQueueEntry>) {
-    // Reverse the waiter list, so that the oldest waker (which is
+fn wake_waiters(waiters: &mut LinkedList<RecvWaitQueueEntry>) {
+    // Remove all waiters from the waiting list in reverse order and wake them.
+    // We reverse the waiter list, so that the oldest waker (which is
     // at the end of the list), gets woken first and has the best
     // chance to grab the channel value.
-
-    for waiter in waiters.into_reverse_iter() {
-        if let Some(handle) = (*waiter).task.take() {
+    waiters.reverse_drain(|waiter| {
+        if let Some(handle) = waiter.task.take() {
             handle.wake();
         }
-        (*waiter).state = RecvPollState::Unregistered;
-    }
+        waiter.state = RecvPollState::Unregistered;
+    });
 }
 
 /// Internal state of the oneshot channel
@@ -60,13 +60,7 @@ where
         self.is_fulfilled = true;
 
         // Wakeup all waiters
-        let waiters = self.waiters.take();
-        // Safety: The linked list is guaranteed to be only manipulated inside
-        // the mutex in scope of the ChannelState and is thereby guaranteed to
-        // be consistent.
-        unsafe {
-            wake_waiters(waiters);
-        }
+        wake_waiters(&mut self.waiters);
 
         Ok(())
     }
@@ -78,13 +72,7 @@ where
         self.is_fulfilled = true;
 
         // Wakeup all waiters
-        let waiters = self.waiters.take();
-        // Safety: The linked list is guaranteed to be only manipulated inside
-        // the mutex in scope of the ChannelState and is thereby guaranteed to
-        // be consistent.
-        unsafe {
-            wake_waiters(waiters);
-        }
+        wake_waiters(&mut self.waiters);
 
         CloseStatus::NewlyClosed
     }
@@ -141,6 +129,8 @@ where
         // ChannelReceiveFuture only needs to get removed if it had been added to
         // the wait queue of the channel. This has happened in the RecvPollState::Waiting case.
         if let RecvPollState::Registered = wait_node.state {
+            // Safety: Due to the state, we know that the node must be part
+            // of the waiter list
             if !unsafe { self.waiters.remove(wait_node) } {
                 // Panic if the address isn't found. This can only happen if the contract was
                 // violated, e.g. the RecvWaitQueueEntry got moved after the initial poll.

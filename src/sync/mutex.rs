@@ -74,21 +74,18 @@ impl MutexState {
         let last_waiter = if self.is_fair {
             self.waiters.peek_last()
         } else {
-            // Safety: The linked list is guaranteed to be in consistent state
-            unsafe { self.waiters.remove_last() }
+            self.waiters.remove_last()
         };
 
-        if !last_waiter.is_null() {
+        if let Some(last_waiter) = last_waiter {
             // Notify the waiter that it can try to lock the mutex again.
             // The notification gets tracked inside the waiter.
             // If the waiter aborts it's wait (drops the future), another task
             // must be woken.
-            unsafe {
-                (*last_waiter).state = PollState::Notified;
+            last_waiter.state = PollState::Notified;
 
-                let task = &mut (*last_waiter).task;
-                return task.take();
-            }
+            let task = &mut last_waiter.task;
+            return task.take();
         }
 
         None
@@ -173,6 +170,8 @@ impl MutexState {
                         wait_node.state = PollState::Done;
                         // Since this waiter has been registered before, it must
                         // get removed from the waiter list.
+                        // Safety: Due to the state, we know that the node must be part
+                        // of the waiter list
                         self.force_remove_waiter(wait_node);
                         Poll::Ready(())
                     } else {
@@ -192,6 +191,8 @@ impl MutexState {
                     if self.is_fair {
                         // In a fair Mutex, the WaitQueueEntry is kept in the
                         // linked list and must be removed here
+                        // Safety: Due to the state, we know that the node must be part
+                        // of the waiter list
                         self.force_remove_waiter(wait_node);
                     }
                     self.is_locked = true;
@@ -219,7 +220,7 @@ impl MutexState {
     /// waiter is no longer valid.
     unsafe fn force_remove_waiter(
         &mut self,
-        wait_node: *mut ListNode<WaitQueueEntry>,
+        wait_node: &mut ListNode<WaitQueueEntry>,
     ) {
         if !self.waiters.remove(wait_node) {
             // Panic if the address isn't found. This can only happen if the contract was
@@ -248,6 +249,8 @@ impl MutexState {
                 if self.is_fair {
                     // In a fair Mutex, the WaitQueueEntry is kept in the
                     // linked list and must be removed here
+                    // Safety: Due to the state, we know that the node must be part
+                    // of the waiter list
                     unsafe { self.force_remove_waiter(wait_node) };
                 }
                 wait_node.state = PollState::Done;
@@ -257,6 +260,8 @@ impl MutexState {
             }
             PollState::Waiting => {
                 // Remove the WaitQueueEntry from the linked list
+                // Safety: Due to the state, we know that the node must be part
+                // of the waiter list
                 unsafe { self.force_remove_waiter(wait_node) };
                 wait_node.state = PollState::Done;
                 None
