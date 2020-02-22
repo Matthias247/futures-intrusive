@@ -491,3 +491,239 @@ mod if_std {
 
 #[cfg(feature = "std")]
 pub use self::if_std::*;
+
+#[cfg(feature = "std")]
+mod if_alloc {
+    use super::*;
+
+    use std::sync::Arc;
+
+    /// Mutex implementation where the RAII guards don't require a lifetime parameter.
+    pub mod shared {
+        use super::*;
+
+        /// An RAII guard returned by the `lock` and `try_lock` methods.
+        /// When this structure is dropped (falls out of scope), the lock will be
+        /// unlocked.
+        pub struct GenericSharedMutexGuard<MutexType: RawMutex, T> {
+            /// The SharedMutex which is associated with this Guard
+            mutex: Arc<GenericMutex<MutexType, T>>,
+        }
+
+        impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
+            for GenericSharedMutexGuard<MutexType, T>
+        {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_struct("GenericSharedMutexGuard").finish()
+            }
+        }
+
+        impl<MutexType: RawMutex, T> Drop for GenericSharedMutexGuard<MutexType, T> {
+            fn drop(&mut self) {
+                // Release the mutex
+                let waker = { self.mutex.state.lock().unlock() };
+                if let Some(waker) = waker {
+                    waker.wake();
+                }
+            }
+        }
+
+        impl<MutexType: RawMutex, T> Deref for GenericSharedMutexGuard<MutexType, T> {
+            type Target = T;
+            fn deref(&self) -> &T {
+                unsafe { &*self.mutex.value.get() }
+            }
+        }
+
+        impl<MutexType: RawMutex, T> DerefMut
+            for GenericSharedMutexGuard<MutexType, T>
+        {
+            fn deref_mut(&mut self) -> &mut T {
+                unsafe { &mut *self.mutex.value.get() }
+            }
+        }
+
+        /// A future which resolves when the target mutex has been successfully acquired.
+        #[must_use = "futures do nothing unless polled"]
+        pub struct GenericSharedMutexLockFuture<MutexType: RawMutex, T> {
+            /// The SharedMutex which should get locked trough this Future
+            mutex: Option<Arc<GenericMutex<MutexType, T>>>,
+            /// Node for waiting at the mutex
+            wait_node: ListNode<WaitQueueEntry>,
+        }
+
+        // Safety: Futures can be sent between threads as long as the underlying
+        // mutex is thread-safe (Sync), which allows to poll/register/unregister from
+        // a different thread.
+        unsafe impl<MutexType: RawMutex + Sync, T> Send
+            for GenericSharedMutexLockFuture<MutexType, T>
+        {
+        }
+
+        impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
+            for GenericSharedMutexLockFuture<MutexType, T>
+        {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_struct("GenericSharedMutexLockFuture").finish()
+            }
+        }
+
+        impl<MutexType: RawMutex, T> Future
+            for GenericSharedMutexLockFuture<MutexType, T>
+        {
+            type Output = GenericSharedMutexGuard<MutexType, T>;
+
+            fn poll(
+                self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<Self::Output> {
+                // Safety: The next operations are safe, because Pin promises us that
+                // the address of the wait queue entry inside GenericSharedMutexLockFuture is stable,
+                // and we don't move any fields inside the future until it gets dropped.
+                let mut_self: &mut GenericSharedMutexLockFuture<MutexType, T> =
+                    unsafe { Pin::get_unchecked_mut(self) };
+
+                let mutex = mut_self.mutex.take().expect(
+                    "polled GenericSharedMutexLockFuture after completion",
+                );
+                let poll_res = unsafe {
+                    let mut mutex_state = mutex.state.lock();
+                    mutex_state.try_lock(&mut mut_self.wait_node, cx)
+                };
+
+                match poll_res {
+                    Poll::Pending => {
+                        // Keep the mutex for later reuse.
+                        mut_self.mutex.replace(mutex);
+                        Poll::Pending
+                    }
+                    Poll::Ready(()) => {
+                        // The mutex was acquired
+                        mut_self.mutex = None;
+                        Poll::Ready(GenericSharedMutexGuard::<MutexType, T> {
+                            mutex,
+                        })
+                    }
+                }
+            }
+        }
+
+        impl<MutexType: RawMutex, T> FusedFuture
+            for GenericSharedMutexLockFuture<MutexType, T>
+        {
+            fn is_terminated(&self) -> bool {
+                self.mutex.is_none()
+            }
+        }
+
+        impl<MutexType: RawMutex, T> Drop
+            for GenericSharedMutexLockFuture<MutexType, T>
+        {
+            fn drop(&mut self) {
+                // If this GenericSharedMutexLockFuture has been polled and it was added to the
+                // wait queue at the mutex, it must be removed before dropping.
+                // Otherwise the mutex would access invalid memory.
+                let waker = if let Some(mutex) = self.mutex.take() {
+                    let mut mutex_state = mutex.state.lock();
+                    mutex_state.remove_waiter(&mut self.wait_node)
+                } else {
+                    None
+                };
+
+                if let Some(waker) = waker {
+                    waker.wake();
+                }
+            }
+        }
+
+        /// A shared, futures-aware mutex.
+        pub struct GenericSharedMutex<MutexType: RawMutex, T> {
+            inner: Arc<GenericMutex<MutexType, T>>,
+        }
+
+        impl<MutexType: RawMutex, T> GenericSharedMutex<MutexType, T> {
+            /// Creates a new futures-aware mutex.
+            ///
+            /// `is_fair` defines whether the `SharedMutex` should behave be fair regarding the
+            /// order of waiters. A fair `SharedMutex` will only allow the first waiter which
+            /// tried to lock but failed to lock the `SharedMutex` once it's available again.
+            /// Other waiters must wait until either this locking attempt completes, and
+            /// the `SharedMutex` gets unlocked again, or until the `MutexSharedLockFuture` which
+            /// tried to gain the lock is dropped.
+            pub fn new(
+                value: T,
+                is_fair: bool,
+            ) -> GenericSharedMutex<MutexType, T> {
+                Self {
+                    inner: Arc::new(GenericMutex::new(value, is_fair)),
+                }
+            }
+
+            /// Acquire the mutex asynchronously.
+            ///
+            /// This method returns a future that will resolve once the mutex has been
+            /// successfully acquired.
+            pub fn lock(&self) -> GenericSharedMutexLockFuture<MutexType, T> {
+                GenericSharedMutexLockFuture::<MutexType, T> {
+                    mutex: Some(self.inner.clone()),
+                    wait_node: ListNode::new(WaitQueueEntry::new()),
+                }
+            }
+
+            /// Tries to acquire the mutex
+            ///
+            /// If acquiring the mutex is successful, a [`GenericSharedMutexGuard`]
+            /// will be returned, which allows to access the contained data.
+            ///
+            /// Otherwise `None` will be returned.
+            pub fn try_lock(
+                &self,
+            ) -> Option<GenericSharedMutexGuard<MutexType, T>> {
+                if self.inner.state.lock().try_lock_sync() {
+                    Some(GenericSharedMutexGuard {
+                        mutex: self.inner.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+
+            /// Returns whether the mutex is locked.
+            pub fn is_locked(&self) -> bool {
+                self.inner.is_locked()
+            }
+        }
+
+        impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
+            for GenericSharedMutex<MutexType, T>
+        {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_struct("GenericSharedMutex")
+                    .field("is_locked", &self.is_locked())
+                    .finish()
+            }
+        }
+
+        impl<MutexType: RawMutex, T> Clone for GenericSharedMutex<MutexType, T> {
+            fn clone(&self) -> Self {
+                Self {
+                    inner: self.inner.clone(),
+                }
+            }
+        }
+
+        // Export a thread-safe version using parking_lot::RawMutex
+
+        /// A [`GenericSharedMutex`] backed by [`parking_lot`].
+        pub type SharedMutex<T> = GenericSharedMutex<parking_lot::RawMutex, T>;
+        /// A [`GenericSharedMutexGuard`] for [`Mutex`].
+        pub type SharedMutexGuard<T> =
+            GenericSharedMutexGuard<parking_lot::RawMutex, T>;
+        /// A [`GenericSharedMutexLockFuture`] for [`Mutex`].
+        pub type SharedMutexLockFuture<T> =
+            GenericSharedMutexLockFuture<parking_lot::RawMutex, T>;
+    }
+}
+
+#[cfg(feature = "std")]
+pub use self::if_alloc::*;

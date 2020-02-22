@@ -34,3 +34,14 @@ pub use self::semaphore::{
 pub use self::semaphore::{
     Semaphore, SemaphoreAcquireFuture, SemaphoreReleaser,
 };
+
+#[cfg(feature = "std")]
+mod if_alloc {
+    /// Implementations for shared synchronization primitives.
+    pub mod shared {
+        pub use super::super::mutex::shared::*;
+    }
+}
+
+#[cfg(feature = "std")]
+pub use self::if_alloc::*;

@@ -440,15 +440,18 @@ gen_mutex_tests!(local_mutex_tests, LocalMutex);
 mod if_std {
     use super::*;
     use futures::FutureExt;
-    use futures_intrusive::sync::Mutex;
+    use futures_intrusive::sync::{shared::SharedMutex, Mutex};
 
     gen_mutex_tests!(mutex_tests, Mutex);
+    gen_mutex_tests!(shared_mutex_tests, SharedMutex);
 
     fn is_send<T: Send>(_: &T) {}
 
     fn is_send_value<T: Send>(_: T) {}
 
     fn is_sync<T: Sync>(_: &T) {}
+
+    fn is_clone<T: Clone>(_: &T) {}
 
     #[test]
     fn mutex_futures_are_send() {
@@ -472,5 +475,35 @@ mod if_std {
             is_send_value(guard);
         }
         is_send_value(mutex);
+    }
+
+    #[test]
+    fn shared_mutex_futures_are_send() {
+        let mutex = SharedMutex::new(true, true);
+        is_sync(&mutex);
+        {
+            let lock_fut = mutex.lock();
+            is_send(&lock_fut);
+            pin_mut!(lock_fut);
+            is_send(&lock_fut);
+
+            let waker = &panic_waker();
+            let cx = &mut Context::from_waker(&waker);
+            pin_mut!(lock_fut);
+            let res = lock_fut.poll_unpin(cx);
+            let guard = match res {
+                Poll::Ready(v) => v,
+                Poll::Pending => panic!("Expected to be ready"),
+            };
+            is_send(&guard);
+            is_send_value(guard);
+        }
+        is_send_value(mutex);
+    }
+
+    #[test]
+    fn shared_mutex_is_clone() {
+        let mutex = SharedMutex::new(true, true);
+        is_clone(&mutex);
     }
 }
