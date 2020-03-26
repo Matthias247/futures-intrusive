@@ -81,56 +81,6 @@ impl<T> LinkedList<T> {
         }
     }
 
-    /// Inserts a node into the list in a way that the list keeps being sorted.
-    /// Safety: This function is only safe as long as `node` is guaranteed to
-    /// get removed from the list before it gets moved or dropped.
-    /// In addition to this `node` may not be added to another other list before
-    /// it is removed from the current one.
-    pub unsafe fn add_sorted(&mut self, node: &mut ListNode<T>)
-    where
-        T: PartialOrd,
-    {
-        if self.head.is_none() {
-            // First node in the list
-            self.head = Some(node.into());
-            self.tail = Some(node.into());
-            return;
-        }
-
-        let mut prev: Option<NonNull<ListNode<T>>> = None;
-        let mut current = self.head;
-
-        while let Some(mut current_node) = current {
-            if node.data < current_node.as_ref().data {
-                // Need to insert before the current node
-                current_node.as_mut().prev = Some(node.into());
-                match prev {
-                    Some(mut prev) => {
-                        prev.as_mut().next = Some(node.into());
-                    }
-                    None => {
-                        // We are inserting at the beginning of the list
-                        self.head = Some(node.into());
-                    }
-                }
-                node.next = current;
-                node.prev = prev;
-                return;
-            }
-            prev = current;
-            current = current_node.as_ref().next;
-        }
-
-        // We looped through the whole list and the nodes data is bigger or equal
-        // than everything we found up to now.
-        // Insert at the end. Since we checked before that the list isn't empty,
-        // tail always has a value.
-        node.prev = self.tail;
-        node.next = None;
-        self.tail.as_mut().unwrap().as_mut().next = Some(node.into());
-        self.tail = Some(node.into());
-    }
-
     /// Returns the first node in the linked list without removing it from the list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
@@ -400,74 +350,6 @@ mod tests {
             setup(&mut list);
             let items: Vec<i32> = collect_reverse_list(list);
             assert_eq!([31, 7, 5].to_vec(), items);
-        }
-    }
-
-    #[test]
-    fn add_sorted() {
-        unsafe {
-            let mut a = ListNode::new(5);
-            let mut b = ListNode::new(7);
-            let mut c = ListNode::new(31);
-            let mut d = ListNode::new(99);
-
-            let mut list = LinkedList::new();
-            list.add_sorted(&mut a);
-            let items: Vec<i32> = collect_list(list);
-            assert_eq!([5].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            list.add_sorted(&mut a);
-            let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([5].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut d, &mut c, &mut b]);
-            list.add_sorted(&mut a);
-            let items: Vec<i32> = collect_list(list);
-            assert_eq!([5, 7, 31, 99].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut d, &mut c, &mut b]);
-            list.add_sorted(&mut a);
-            let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([99, 31, 7, 5].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut d, &mut c, &mut a]);
-            list.add_sorted(&mut b);
-            let items: Vec<i32> = collect_list(list);
-            assert_eq!([5, 7, 31, 99].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut d, &mut c, &mut a]);
-            list.add_sorted(&mut b);
-            let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([99, 31, 7, 5].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut d, &mut b, &mut a]);
-            list.add_sorted(&mut c);
-            let items: Vec<i32> = collect_list(list);
-            assert_eq!([5, 7, 31, 99].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut d, &mut b, &mut a]);
-            list.add_sorted(&mut c);
-            let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([99, 31, 7, 5].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-            list.add_sorted(&mut d);
-            let items: Vec<i32> = collect_list(list);
-            assert_eq!([5, 7, 31, 99].to_vec(), items);
-
-            let mut list = LinkedList::new();
-            add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-            list.add_sorted(&mut d);
-            let items: Vec<i32> = collect_reverse_list(list);
-            assert_eq!([99, 31, 7, 5].to_vec(), items);
         }
     }
 
