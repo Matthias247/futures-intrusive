@@ -286,7 +286,6 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
 
     /// Returns a deadline based on the current timestamp plus the given Duration
     fn deadline_from_now(&self, duration: Duration) -> u64 {
-        // TODO: Make this more efficient and with better overflow checking
         let now = self.inner.lock().clock.now();
         let duration_ms =
             core::cmp::min(duration.as_millis(), core::u64::MAX as u128) as u64;

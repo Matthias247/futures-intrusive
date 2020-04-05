@@ -1,4 +1,21 @@
 //! Implements an intrusive priority queue based on a pairing heap.
+//!
+//! A [pairing heap] is a heap data structure (i.e. a tree whose nodes carry
+//! values, with the property that every node's value is lesser or equal to its
+//! children's) that supports the following operations:
+//!
+//! - finding a minimum element in `O(1)`
+//!    - This is trivial: the heap property guarantees that the root is a
+//!      minimum element.
+//! - insertion of a new node in `O(1)`
+//! - deletion in `O(log n)`, _amortized_
+//!    - However, note that any _individual_ deletion may take `O(N)` time. For
+//!      example, if we take an empty heap and insert N elements, the tree will
+//!      have a very degenerate (shallow) shape. Then, deleting the root will
+//!      take `O(N)` time, but it will also reorganize the tree to make
+//!      successive deletes cheaper.
+//!
+//! [pairing heap]: https://en.wikipedia.org/wiki/Pairing_heap
 
 use core::{
     marker::PhantomPinned,
@@ -24,6 +41,9 @@ fn safe_lesser<T: Ord>(a: &T, b: &T) -> bool {
 }
 
 /// A node which carries data of type `T` and is stored in an intrusive heap.
+///
+/// Nodes will be compared based on `T`'s [`Ord`] impl. Those comparisons must
+/// not panic - otherwise, the program will abort.
 #[derive(Debug)]
 pub struct HeapNode<T> {
     /// The parent. `None` if this is the root.
@@ -88,6 +108,7 @@ unsafe fn add_child<T: Ord>(
     debug_assert!(!safe_lesser(&child.as_ref().data, &parent.as_ref().data));
     if let Some(mut old_first_child) = parent.as_mut().first_child.take() {
         child.as_mut().next = Some(old_first_child);
+        debug_assert_eq!(old_first_child.as_ref().prev, None);
         old_first_child.as_mut().prev = Some(child);
     }
     parent.as_mut().first_child = Some(child);
@@ -96,17 +117,19 @@ unsafe fn add_child<T: Ord>(
 
 /// Merge two root heaps. Returns the new root.
 unsafe fn meld<T: Ord>(
-    mut left: NonNull<HeapNode<T>>,
-    mut right: NonNull<HeapNode<T>>,
+    left: NonNull<HeapNode<T>>,
+    right: NonNull<HeapNode<T>>,
 ) -> NonNull<HeapNode<T>> {
     debug_assert!(left.as_ref().is_root());
     debug_assert!(right.as_ref().is_root());
-    if safe_lesser(&right.as_ref().data, &left.as_ref().data) {
-        mem::swap(&mut left, &mut right);
+    // The lesser node should become the root.
+    if safe_lesser(&left.as_ref().data, &right.as_ref().data) {
+        add_child(left, right);
+        left
+    } else {
+        add_child(right, left);
+        right
     }
-    // Now we always have `left` <= `right`. `left` will be the new root.
-    add_child(left, right);
-    left
 }
 
 /// Merge two root heaps, where the left might be empty. Returns the new root.
@@ -123,17 +146,28 @@ unsafe fn maybe_meld<T: Ord>(
 
 /// Given the first child in a child list, traverse and find the last child.
 unsafe fn last_child<T>(
-    mut first_child: NonNull<HeapNode<T>>,
+    first_child: NonNull<HeapNode<T>>,
 ) -> NonNull<HeapNode<T>> {
-    while let Some(next) = first_child.as_ref().next {
-        first_child = next;
+    let mut cur = first_child;
+    while let Some(next) = cur.as_ref().next {
+        cur = next;
     }
-    first_child
+    cur
 }
 
+/// Given a pointer to the last node in a child list, unlink it and return the
+/// previous node (which has become the last node in its list).
+///
+/// That is, given a list `A <-> B <-> C`, `unlink_prev(C)` will return `B` and
+/// also unlink `C` to become `A <-> B    C`.
+///
+/// If the node was a lone child, returns `None`.
+///
+/// Parent/child pointers are untouched.
 unsafe fn unlink_prev<T>(
     mut node: NonNull<HeapNode<T>>,
 ) -> Option<NonNull<HeapNode<T>>> {
+    debug_assert_eq!(node.as_ref().next, None);
     let mut prev = node.as_mut().prev.take()?;
     debug_assert_eq!(prev.as_ref().next, Some(node));
     prev.as_mut().next = None;
@@ -315,6 +349,7 @@ mod tests {
             Insert(u8),
             Remove(u8),
         }
+
         fn generate_schedules(
             current: &mut Vec<Action>,
             available: &mut Vec<Action>,
