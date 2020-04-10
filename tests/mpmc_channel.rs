@@ -147,6 +147,16 @@ fn assert_receive_done<FutureType, T>(
     assert!(receive_fut.as_mut().is_terminated());
 }
 
+macro_rules! assert_receive {
+    ($cx:ident, $channel:expr, $value: expr) => {
+        let receive_fut = $channel.receive();
+        pin_mut!(receive_fut);
+        assert!(!receive_fut.as_mut().is_terminated());
+
+        assert_receive_done($cx, &mut receive_fut, $value);
+    };
+}
+
 macro_rules! gen_mpmc_tests {
     ($mod_name:ident, $channel_type:ident, $unbuffered_channel_type:ident) => {
         mod $mod_name {
@@ -165,16 +175,6 @@ macro_rules! gen_mpmc_tests {
                 assert!(!send_fut.as_mut().is_terminated());
 
                 assert_send_done(cx, &mut send_fut, Ok(()));
-            }
-
-            macro_rules! assert_receive {
-                ($cx:ident, $channel:expr, $value: expr) => {
-                    let receive_fut = $channel.receive();
-                    pin_mut!(receive_fut);
-                    assert!(!receive_fut.as_mut().is_terminated());
-
-                    assert_receive_done($cx, &mut receive_fut, $value);
-                };
             }
 
             #[test]
@@ -1067,12 +1067,69 @@ gen_mpmc_tests!(
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
+    use futures_intrusive::buffer::GrowingHeapBuf;
     use futures_intrusive::channel::{
         shared::channel, shared::ChannelReceiveFuture,
         shared::ChannelSendFuture, shared::Receiver, shared::Sender, Channel,
-        UnbufferedChannel,
+        GenericChannel, UnbufferedChannel,
     };
+    use futures_intrusive::NoopLock;
 
+    macro_rules! gen_mpmc_adjustable_tests {
+        ($mod_name:ident, $channel_type:ident) => {
+            mod $mod_name {
+                use super::*;
+
+                type ChannelType =
+                    $channel_type<NoopLock, i32, GrowingHeapBuf<i32>>;
+
+                fn assert_send(
+                    cx: &mut Context,
+                    channel: &ChannelType,
+                    value: i32,
+                ) {
+                    let send_fut = channel.send(value);
+                    pin_mut!(send_fut);
+                    assert!(!send_fut.as_mut().is_terminated());
+
+                    assert_send_done(cx, &mut send_fut, Ok(()));
+                }
+
+                #[test]
+                fn set_capacity() {
+                    let channel = ChannelType::with_capacity(3);
+                    let (waker, count) = new_count_waker();
+                    let cx = &mut Context::from_waker(&waker);
+
+                    assert_send(cx, &channel, 100);
+                    assert_send(cx, &channel, 101);
+                    assert_send(cx, &channel, 102);
+
+                    let poll1 = channel.send(1);
+                    let poll2 = channel.send(2);
+
+                    pin_mut!(poll1);
+                    pin_mut!(poll2);
+
+                    assert!(poll1.as_mut().poll(cx).is_pending());
+                    assert!(poll2.as_mut().poll(cx).is_pending());
+
+                    channel.set_capacity(5);
+
+                    assert_send_done(cx, &mut poll1, Ok(()));
+                    assert_send_done(cx, &mut poll2, Ok(()));
+
+                    assert_receive!(cx, &channel, Some(100));
+                    assert_receive!(cx, &channel, Some(101));
+                    assert_receive!(cx, &channel, Some(102));
+
+                    assert_eq!(count, 2);
+                }
+            }
+        };
+    }
+
+    gen_mpmc_adjustable_tests!(mpmc_adjustable_channel_tests, GenericChannel);
     gen_mpmc_tests!(mpmc_channel_tests, Channel, UnbufferedChannel);
 
     macro_rules! assert_receive {

@@ -34,6 +34,16 @@ pub trait RingBuf {
     fn pop(&mut self) -> Self::Item;
 }
 
+/// A Ring Buffer with the capability to change the capacity at runtime
+pub trait AdjustableRingBuffer {
+    /// Change the capacity. Return `true` if capacity increased
+    fn set_capacity(&mut self, new_cap: usize) -> bool;
+
+    /// Returns `true` if buffer needs to be shrunk, typically after
+    /// capacity decrease
+    fn is_capacity_exceeded(&self) -> bool;
+}
+
 /// An array-backed Ring Buffer
 ///
 /// `A` is the type of the backing array. The backing array must be a real
@@ -183,6 +193,7 @@ mod if_std {
         /// The capacity is stored extra, since VecDeque can allocate space for
         /// more elements than specified.
         cap: usize,
+        needs_shrinking: bool,
     }
 
     impl<T> core::fmt::Debug for FixedHeapBuf<T> {
@@ -193,6 +204,7 @@ mod if_std {
             f.debug_struct("FixedHeapBuf")
                 .field("size", &self.buffer.len())
                 .field("cap", &self.cap)
+                .field("needs_shrinking", &self.needs_shrinking)
                 .finish()
         }
     }
@@ -204,6 +216,7 @@ mod if_std {
             FixedHeapBuf {
                 buffer: VecDeque::new(),
                 cap: 0,
+                needs_shrinking: false,
             }
         }
 
@@ -211,6 +224,7 @@ mod if_std {
             FixedHeapBuf {
                 buffer: VecDeque::with_capacity(cap),
                 cap,
+                needs_shrinking: false,
             }
         }
 
@@ -226,7 +240,7 @@ mod if_std {
 
         #[inline]
         fn can_push(&self) -> bool {
-            self.buffer.len() != self.cap
+            self.buffer.len() < self.cap
         }
 
         #[inline]
@@ -238,7 +252,56 @@ mod if_std {
         #[inline]
         fn pop(&mut self) -> Self::Item {
             assert!(self.buffer.len() > 0);
-            self.buffer.pop_front().unwrap()
+            let element = self.buffer.pop_front().unwrap();
+
+            self.try_shrink();
+
+            element
+        }
+    }
+
+    impl<T> FixedHeapBuf<T> {
+        #[inline]
+        fn try_shrink(&mut self) {
+            if self.needs_shrinking {
+                let buffer_len = self.buffer.len();
+                // we must reduce the size of the buffer once we reach the desired capacity
+                if buffer_len <= self.cap {
+                    // shrink_to is unstable, so we may shrink only to the current size, and
+                    // reserve after that
+                    self.buffer.shrink_to_fit();
+                    self.buffer.reserve(self.cap - buffer_len);
+                    self.needs_shrinking = false;
+                }
+            }
+        }
+    }
+
+    impl<T> AdjustableRingBuffer for FixedHeapBuf<T> {
+        /// Changes the capacity of the channel. If it increased, additional capacity
+        /// will immediately be reserved. If it decreased, the buffer will be shrunk
+        /// immediately (in case there are no excessive elements), or after reaching
+        /// the desired length.
+        fn set_capacity(&mut self, new_cap: usize) -> bool {
+            if self.cap == new_cap {
+                return false;
+            }
+
+            let ret = if new_cap < self.cap {
+                //current capacity is bigger than requested. we need to shrink buffer once it reaches the new capacity
+                self.needs_shrinking = true;
+                false
+            } else {
+                self.buffer.reserve_exact(new_cap - self.cap);
+                true
+            };
+            self.cap = new_cap;
+            self.try_shrink();
+            ret
+        }
+
+        fn is_capacity_exceeded(&self) -> bool {
+            self.needs_shrinking
         }
     }
 
@@ -253,6 +316,8 @@ mod if_std {
         buffer: VecDeque<T>,
         /// The maximum number of elements in the buffer.
         limit: usize,
+
+        needs_shrinking: bool,
     }
 
     impl<T> core::fmt::Debug for GrowingHeapBuf<T> {
@@ -263,6 +328,7 @@ mod if_std {
             f.debug_struct("GrowingHeapBuf")
                 .field("size", &self.buffer.len())
                 .field("limit", &self.limit)
+                .field("needs_shrinking", &self.needs_shrinking)
                 .finish()
         }
     }
@@ -274,6 +340,7 @@ mod if_std {
             GrowingHeapBuf {
                 buffer: VecDeque::new(),
                 limit: 0,
+                needs_shrinking: false,
             }
         }
 
@@ -281,6 +348,7 @@ mod if_std {
             GrowingHeapBuf {
                 buffer: VecDeque::new(),
                 limit,
+                needs_shrinking: false,
             }
         }
 
@@ -296,7 +364,7 @@ mod if_std {
 
         #[inline]
         fn can_push(&self) -> bool {
-            self.buffer.len() != self.limit
+            self.buffer.len() < self.limit
         }
 
         #[inline]
@@ -308,7 +376,51 @@ mod if_std {
         #[inline]
         fn pop(&mut self) -> Self::Item {
             debug_assert!(self.buffer.len() > 0);
-            self.buffer.pop_front().unwrap()
+            let element = self.buffer.pop_front().unwrap();
+
+            self.try_shrink();
+
+            element
+        }
+    }
+
+    impl<T> GrowingHeapBuf<T> {
+        #[inline]
+        fn try_shrink(&mut self) {
+            if self.needs_shrinking {
+                // we must reduce the size of the buffer once we reach the desired capacity
+                if self.buffer.len() <= self.limit {
+                    // shrink_to is unstable, so we may shrink only to the current size
+                    self.buffer.shrink_to_fit();
+                    self.needs_shrinking = false;
+                }
+            }
+        }
+    }
+
+    impl<T> AdjustableRingBuffer for GrowingHeapBuf<T> {
+        /// Changes the capacity of the channel. If it increased, no immediate reservation
+        /// will happen. If it decreased, the buffer will be shrunk immediately (in case
+        /// there are no excessive elements), or after reaching the desired length.
+        fn set_capacity(&mut self, new_limit: usize) -> bool {
+            if self.limit == new_limit {
+                return false;
+            }
+
+            let ret = if new_limit < self.limit {
+                //current capacity is bigger than requested. we need to shrink buffer once it reaches the new capacity
+                self.needs_shrinking = true;
+                false
+            } else {
+                true
+            };
+            self.limit = new_limit;
+            self.try_shrink();
+            ret
+        }
+
+        fn is_capacity_exceeded(&self) -> bool {
+            self.needs_shrinking
         }
     }
 }
@@ -359,6 +471,40 @@ mod tests {
         }
     }
 
+    fn test_ring_buf_set_capacity<
+        Buf: RingBuf<Item = u32> + AdjustableRingBuffer,
+    >(
+        mut buf: Buf,
+    ) {
+        assert_eq!(5, buf.capacity());
+        assert_eq!(0, buf.len());
+        assert_eq!(true, buf.is_empty());
+        assert_eq!(true, buf.can_push());
+        assert_eq!(false, buf.is_capacity_exceeded());
+
+        buf.push(1);
+        buf.push(2);
+        buf.push(3);
+
+        buf.set_capacity(2);
+        assert_eq!(false, buf.can_push());
+        assert_eq!(true, buf.is_capacity_exceeded());
+
+        assert_eq!(1, buf.pop());
+        assert_eq!(false, buf.is_capacity_exceeded());
+        assert_eq!(2, buf.pop());
+        assert_eq!(true, buf.can_push());
+        buf.push(4);
+
+        buf.set_capacity(2);
+        assert_eq!(false, buf.is_capacity_exceeded());
+        assert_eq!(false, buf.can_push());
+        buf.set_capacity(5);
+        assert_eq!(true, buf.can_push());
+        assert_eq!(false, buf.is_capacity_exceeded());
+        buf.set_capacity(2);
+    }
+
     #[test]
     fn test_array_ring_buf() {
         let buf = ArrayBuf::<u32, [u32; 5]>::new();
@@ -375,5 +521,17 @@ mod tests {
     fn test_growing_ring_buf() {
         let buf = GrowingHeapBuf::<u32>::with_capacity(5);
         test_ring_buf(buf);
+    }
+
+    #[test]
+    fn test_heap_ring_buf_set_capacity() {
+        let buf = FixedHeapBuf::<u32>::with_capacity(5);
+        test_ring_buf_set_capacity(buf);
+    }
+
+    #[test]
+    fn test_growing_ring_buf_set_capacity() {
+        let buf = GrowingHeapBuf::<u32>::with_capacity(5);
+        test_ring_buf_set_capacity(buf);
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::intrusive_double_linked_list::{LinkedList, ListNode};
 use crate::{
-    buffer::{ArrayBuf, RingBuf},
+    buffer::{AdjustableRingBuffer, ArrayBuf, RingBuf},
     utils::update_waker_ref,
     NoopLock,
 };
@@ -364,6 +364,23 @@ where
     A: RingBuf<Item = T>,
 {
     inner: Mutex<MutexType, ChannelState<T, A>>,
+}
+
+impl<MutexType, T, A> GenericChannel<MutexType, T, A>
+where
+    MutexType: RawMutex,
+    A: RingBuf<Item = T> + AdjustableRingBuffer,
+{
+    pub fn set_capacity(&self, new_cap: usize) {
+        let inner = &mut *self.inner.lock();
+        if inner.buffer.set_capacity(new_cap) {
+            // the capacity have increased. notify all waiting sender
+
+            if !inner.is_closed {
+                wake_send_waiters(&mut inner.send_waiters);
+            }
+        }
+    }
 }
 
 // The channel can be sent to other threads as long as it's not borrowed and the
@@ -774,6 +791,18 @@ mod if_alloc {
             inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
         }
 
+        impl<MutexType, T, A> GenericReceiver<MutexType, T, A>
+        where
+            MutexType: RawMutex,
+            A: RingBuf<Item = T> + AdjustableRingBuffer,
+        {
+            /// Change the capacity of the channel. If the channel is not closed, and the
+            /// capacity increased, all waiting senders will receive wakeup notifications.
+            pub fn set_capacity(&self, new_cap: usize) {
+                self.inner.channel.set_capacity(new_cap);
+            }
+        }
+
         impl<MutexType, T, A> core::fmt::Debug for GenericSender<MutexType, T, A>
         where
             MutexType: RawMutex,
@@ -781,6 +810,18 @@ mod if_alloc {
         {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("Sender").finish()
+            }
+        }
+
+        impl<MutexType, T, A> GenericSender<MutexType, T, A>
+        where
+            MutexType: RawMutex,
+            A: RingBuf<Item = T> + AdjustableRingBuffer,
+        {
+            /// Change the capacity of the channel. If the channel is not closed, and the
+            /// capacity increased, all waiting senders will receive wakeup notifications.
+            pub fn set_capacity(&self, new_cap: usize) {
+                self.inner.channel.set_capacity(new_cap);
             }
         }
 
