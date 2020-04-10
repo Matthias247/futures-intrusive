@@ -217,7 +217,7 @@
 #![deny(bare_trait_objects)]
 
 mod noop_lock;
-use noop_lock::NoopLock;
+pub use noop_lock::NoopLock;
 
 pub mod buffer;
 

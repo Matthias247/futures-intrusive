@@ -371,6 +371,8 @@ where
     MutexType: RawMutex,
     A: RingBuf<Item = T> + AdjustableRingBuffer,
 {
+    /// Changes the capacity of the channel in runtime. See documentation of
+    /// `set_capacity` in particular `RingBuffer` implementation
     pub fn set_capacity(&self, new_cap: usize) {
         let inner = &mut *self.inner.lock();
         if inner.buffer.set_capacity(new_cap) {
