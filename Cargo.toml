@@ -33,6 +33,8 @@ rand = "0.7"
 async-std = "1.4" # For benchmarks
 tokio = { version = "0.2.11", features = ["full"] } # For channel benchmarks
 signal-hook = "0.1.11" # For cancellation example
+running-average = "0.1.0" # For tracking example
+histogram = "0.6.9"
 
 [[bench]]
 name = "mpmc_channel"

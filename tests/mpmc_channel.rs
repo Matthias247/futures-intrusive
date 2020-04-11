@@ -1064,6 +1064,80 @@ gen_mpmc_tests!(
     LocalUnbufferedChannel
 );
 
+mod tracking {
+    use futures_intrusive::buffer::ArrayBuf;
+    use futures_intrusive::channel::shared::generic_channel_with_tracker;
+    use futures_intrusive::tracking::Tracker;
+    use parking_lot::RawMutex;
+
+    pub struct TestTracker {
+        incoming: Vec<u16>,
+        outgoing: Vec<u16>,
+    }
+
+    impl Default for TestTracker {
+        fn default() -> Self {
+            TestTracker {
+                incoming: Default::default(),
+                outgoing: Default::default(),
+            }
+        }
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct TestReport {
+        incoming: Vec<u16>,
+        outgoing: Vec<u16>,
+    }
+
+    impl Tracker<u16> for TestTracker {
+        type Report = TestReport;
+
+        fn track_incoming(&mut self, item: &u16) {
+            self.incoming.push(*item);
+        }
+
+        fn track_outgoing(&mut self, item: &u16) {
+            self.outgoing.push(*item);
+        }
+
+        fn report(&mut self) -> Self::Report {
+            TestReport {
+                incoming: self.incoming.clone(),
+                outgoing: self.outgoing.clone(),
+            }
+        }
+    }
+
+    #[test]
+    fn tracking() {
+        let tracker = TestTracker {
+            incoming: vec![],
+            outgoing: vec![],
+        };
+
+        let (sender, receiver) = generic_channel_with_tracker::<
+            RawMutex,
+            u16,
+            ArrayBuf<u16, [u16; 16]>,
+            _,
+        >(16, tracker);
+        sender.try_send(1).unwrap();
+        sender.try_send(2).unwrap();
+        let _ = receiver.try_receive().unwrap();
+        sender.try_send(3).unwrap();
+        let _ = receiver.try_receive().unwrap();
+
+        let expected_report = TestReport {
+            incoming: vec![1, 2, 3],
+            outgoing: vec![1, 2],
+        };
+
+        assert_eq!(expected_report, sender.tracker_report());
+        assert_eq!(expected_report, receiver.tracker_report());
+    }
+}
+
 #[cfg(feature = "std")]
 mod if_std {
     use super::*;
@@ -1072,6 +1146,7 @@ mod if_std {
         shared::ChannelSendFuture, shared::Receiver, shared::Sender, Channel,
         UnbufferedChannel,
     };
+    use futures_intrusive::tracking::NoopTracker;
 
     gen_mpmc_tests!(mpmc_channel_tests, Channel, UnbufferedChannel);
 
@@ -1151,7 +1226,7 @@ mod if_std {
         fn send(&self, value: Self::Input) -> Self::Next;
     }
 
-    impl<T> StreamTrait for Receiver<T>
+    impl<T> StreamTrait for Receiver<T, NoopTracker>
     where
         T: 'static,
     {
@@ -1163,7 +1238,7 @@ mod if_std {
         }
     }
 
-    impl<T> Sink for Sender<T>
+    impl<T> Sink for Sender<T, NoopTracker>
     where
         T: 'static,
     {

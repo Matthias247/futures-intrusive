@@ -219,6 +219,8 @@
 mod noop_lock;
 use noop_lock::NoopLock;
 
+pub mod tracking;
+
 pub mod buffer;
 
 #[allow(dead_code)]

@@ -65,9 +65,10 @@ fn return_oldest_receive_waiter(
 }
 
 /// Internal state of the channel
-struct ChannelState<T, A>
+struct ChannelState<T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
     /// Whether the channel had been closed
     is_closed: bool,
@@ -77,18 +78,22 @@ where
     receive_waiters: LinkedList<RecvWaitQueueEntry>,
     /// Futures which are waiting on send
     send_waiters: LinkedList<SendWaitQueueEntry<T>>,
+    /// Tracker
+    tracker: R,
 }
 
-impl<T, A> ChannelState<T, A>
+impl<T, A, R> ChannelState<T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
-    fn new(buffer: A) -> ChannelState<T, A> {
-        ChannelState::<T, A> {
+    fn new(buffer: A, tracker: R) -> ChannelState<T, A, R> {
+        ChannelState::<T, A, R> {
             is_closed: false,
             buffer,
             receive_waiters: LinkedList::new(),
             send_waiters: LinkedList::new(),
+            tracker,
         }
     }
 
@@ -117,6 +122,7 @@ where
         if self.is_closed {
             Err(TrySendError::Closed(value))
         } else if self.buffer.can_push() {
+            self.tracker.track_incoming(&value);
             self.buffer.push(value);
 
             // Return the oldest receive waiter
@@ -162,6 +168,8 @@ where
                         .value
                         .take()
                         .expect("wait_node must contain value");
+
+                    self.tracker.track_incoming(&value);
                     self.buffer.push(value);
 
                     // Return the oldest receive waiter
@@ -198,6 +206,8 @@ where
                 .value
                 .take()
                 .expect("wait_node must contain value");
+
+            self.tracker.track_incoming(&value);
             self.buffer.push(value);
 
             last_waiter.state = SendPollState::SendComplete;
@@ -237,6 +247,7 @@ where
     fn try_receive(&mut self) -> Result<(T, Option<Waker>), TryReceiveError> {
         if !self.buffer.is_empty() {
             let val = self.buffer.pop();
+            self.tracker.track_outgoing(&val);
 
             // Since this means a space in the buffer had been freed,
             // try to copy a value from a potential waiter into the channel.
@@ -359,48 +370,54 @@ where
 /// Values can be sent into the channel through `send`.
 /// The returned Future will get resolved when the value has been stored
 /// inside the channel.
-pub struct GenericChannel<MutexType: RawMutex, T, A>
+pub struct GenericChannel<MutexType: RawMutex, T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
-    inner: Mutex<MutexType, ChannelState<T, A>>,
+    inner: Mutex<MutexType, ChannelState<T, A, R>>,
 }
 
 // The channel can be sent to other threads as long as it's not borrowed and the
 // value in it can be sent to other threads.
-unsafe impl<MutexType: RawMutex + Send, T: Send, A> Send
-    for GenericChannel<MutexType, T, A>
+unsafe impl<MutexType: RawMutex + Send, T: Send, A, R> Send
+    for GenericChannel<MutexType, T, A, R>
 where
     A: RingBuf<Item = T> + Send,
-{
-}
-// The channel is thread-safe as long as a thread-safe mutex is used
-unsafe impl<MutexType: RawMutex + Sync, T: Send, A> Sync
-    for GenericChannel<MutexType, T, A>
-where
-    A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
 }
 
-impl<MutexType: RawMutex, T, A> core::fmt::Debug
-    for GenericChannel<MutexType, T, A>
+// The channel is thread-safe as long as a thread-safe mutex is used
+unsafe impl<MutexType: RawMutex + Sync, T: Send, A, R> Sync
+    for GenericChannel<MutexType, T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
+{
+}
+
+impl<MutexType: RawMutex, T, A, R> core::fmt::Debug
+    for GenericChannel<MutexType, T, A, R>
+where
+    A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("Channel").finish()
     }
 }
 
-impl<MutexType: RawMutex, T, A> GenericChannel<MutexType, T, A>
+impl<MutexType: RawMutex, T, A, R> GenericChannel<MutexType, T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T> + Default,
 {
     /// Creates a new Channel, utilizing the default capacity that
     /// the RingBuffer in `A` provides.
     pub fn new() -> Self {
         GenericChannel {
-            inner: Mutex::new(ChannelState::new(A::new())),
+            inner: Mutex::new(ChannelState::new(A::new(), Default::default())),
         }
     }
 
@@ -409,7 +426,37 @@ where
     /// be ignored and the default capacity might be utilized.
     pub fn with_capacity(capacity: usize) -> Self {
         GenericChannel {
-            inner: Mutex::new(ChannelState::new(A::with_capacity(capacity))),
+            inner: Mutex::new(ChannelState::new(
+                A::with_capacity(capacity),
+                Default::default(),
+            )),
+        }
+    }
+}
+
+impl<MutexType: RawMutex, T, A, R> GenericChannel<MutexType, T, A, R>
+where
+    A: RingBuf<Item = T>,
+    R: Tracker<T>,
+{
+    /// Creates a new Channel with provided tracker, utilizing the default
+    /// capacity that the RingBuffer in `A` provides,
+    pub fn with_tracker(tracker: R) -> Self {
+        GenericChannel {
+            inner: Mutex::new(ChannelState::new(A::new(), tracker)),
+        }
+    }
+
+    /// Creates a new Channel with provided tracker, which has storage for a
+    /// `capacity` items. Depending on the utilized `RingBuf` type, the
+    /// capacity argument might be ignored and the default capacity might
+    /// be utilized.
+    pub fn with_capacity_and_tracker(capacity: usize, tracker: R) -> Self {
+        GenericChannel {
+            inner: Mutex::new(ChannelState::new(
+                A::with_capacity(capacity),
+                tracker,
+            )),
         }
     }
 
@@ -477,7 +524,7 @@ where
     ///
     /// This stream does not yield `None` when the channel is empty,
     /// instead it yields `None` when it is terminated.
-    pub fn stream(&self) -> ChannelStream<MutexType, T, A> {
+    pub fn stream(&self) -> ChannelStream<MutexType, T, A, R> {
         ChannelStream {
             channel: Some(self),
             future: None,
@@ -491,12 +538,19 @@ where
     pub fn close(&self) -> CloseStatus {
         self.inner.lock().close()
     }
+
+    /// Returns the report collected by tracker
+    #[inline]
+    pub fn tracker_report(&self) -> R::Report {
+        self.inner.lock().tracker.report()
+    }
 }
 
-impl<MutexType: RawMutex, T, A> ChannelSendAccess<T>
-    for GenericChannel<MutexType, T, A>
+impl<MutexType: RawMutex, T, A, R> ChannelSendAccess<T>
+    for GenericChannel<MutexType, T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
     unsafe fn send_or_register(
         &self,
@@ -521,10 +575,11 @@ where
     }
 }
 
-impl<MutexType: RawMutex, T, A> ChannelReceiveAccess<T>
-    for GenericChannel<MutexType, T, A>
+impl<MutexType: RawMutex, T, A, R> ChannelReceiveAccess<T>
+    for GenericChannel<MutexType, T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
     unsafe fn receive_or_register(
         &self,
@@ -562,18 +617,20 @@ where
 /// Not driving the `ChannelStream` to completion after it has been polled
 /// might lead to lost wakeup notifications.
 #[derive(Debug)]
-pub struct ChannelStream<'a, MutexType: RawMutex, T, A>
+pub struct ChannelStream<'a, MutexType: RawMutex, T, A, R>
 where
     A: RingBuf<Item = T>,
+    R: Tracker<T>,
 {
-    channel: Option<&'a GenericChannel<MutexType, T, A>>,
+    channel: Option<&'a GenericChannel<MutexType, T, A, R>>,
     future: Option<ChannelReceiveFuture<'a, MutexType, T>>,
 }
 
-impl<'a, MutexType, T, A> Stream for ChannelStream<'a, MutexType, T, A>
+impl<'a, MutexType, T, A, R> Stream for ChannelStream<'a, MutexType, T, A, R>
 where
     A: RingBuf<Item = T>,
     MutexType: RawMutex,
+    R: Tracker<T>,
 {
     type Item = T;
 
@@ -624,10 +681,12 @@ where
     }
 }
 
-impl<'a, MutexType, T, A> FusedStream for ChannelStream<'a, MutexType, T, A>
+impl<'a, MutexType, T, A, R> FusedStream
+    for ChannelStream<'a, MutexType, T, A, R>
 where
     A: RingBuf<Item = T>,
     MutexType: RawMutex,
+    R: Tracker<T>,
 {
     fn is_terminated(&self) -> bool {
         self.channel.is_none()
@@ -637,7 +696,8 @@ where
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericChannel`] implementation which is not thread-safe.
-pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
+pub type LocalChannel<T, A> =
+    GenericChannel<NoopLock, T, ArrayBuf<T, A>, NoopTracker>;
 
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
 pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
@@ -658,7 +718,7 @@ mod if_std {
 
     /// A [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type Channel<T, A> =
-        GenericChannel<parking_lot::RawMutex, T, ArrayBuf<T, A>>;
+        GenericChannel<parking_lot::RawMutex, T, ArrayBuf<T, A>, NoopTracker>;
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
@@ -684,27 +744,29 @@ mod if_alloc {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         /// Shared Channel State, which is referenced by Senders and Receivers
-        struct GenericChannelSharedState<MutexType, T, A>
+        struct GenericChannelSharedState<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             T: 'static,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             /// The amount of [`GenericSender`] instances which reference this state.
             senders: AtomicUsize,
             /// The amount of [`GenericReceiver`] instances which reference this state.
             receivers: AtomicUsize,
             /// The channel on which is acted.
-            channel: GenericChannel<MutexType, T, A>,
+            channel: GenericChannel<MutexType, T, A, R>,
         }
 
         // Implement ChannelAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl<MutexType, T, A> ChannelReceiveAccess<T>
-            for GenericChannelSharedState<MutexType, T, A>
+        impl<MutexType, T, A, R> ChannelReceiveAccess<T>
+            for GenericChannelSharedState<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             unsafe fn receive_or_register(
                 &self,
@@ -724,11 +786,12 @@ mod if_alloc {
 
         // Implement ChannelAccess trait for SharedChannelState, so that it can
         // be used for dynamic dispatch in futures.
-        impl<MutexType, T, A> ChannelSendAccess<T>
-            for GenericChannelSharedState<MutexType, T, A>
+        impl<MutexType, T, A, R> ChannelSendAccess<T>
+            for GenericChannelSharedState<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             unsafe fn send_or_register(
                 &self,
@@ -751,13 +814,15 @@ mod if_alloc {
         ///
         /// Values can be sent into the channel through `send`.
         /// The returned Future will get resolved when the value has been stored inside the channel.
-        pub struct GenericSender<MutexType, T, A>
+        pub struct GenericSender<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
             T: 'static,
+            R: Tracker<T>,
         {
-            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
+            inner:
+                std::sync::Arc<GenericChannelSharedState<MutexType, T, A, R>>,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -765,39 +830,45 @@ mod if_alloc {
         ///
         /// Tasks can receive values from the channel through the `receive` method.
         /// The returned Future will get resolved when a value is sent into the channel.
-        pub struct GenericReceiver<MutexType, T, A>
+        pub struct GenericReceiver<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
             T: 'static,
+            R: Tracker<T>,
         {
-            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
+            inner:
+                std::sync::Arc<GenericChannelSharedState<MutexType, T, A, R>>,
         }
 
-        impl<MutexType, T, A> core::fmt::Debug for GenericSender<MutexType, T, A>
+        impl<MutexType, T, A, R> core::fmt::Debug for GenericSender<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("Sender").finish()
             }
         }
 
-        impl<MutexType, T, A> core::fmt::Debug for GenericReceiver<MutexType, T, A>
+        impl<MutexType, T, A, R> core::fmt::Debug
+            for GenericReceiver<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 f.debug_struct("Receiver").finish()
             }
         }
 
-        impl<MutexType, T, A> Clone for GenericSender<MutexType, T, A>
+        impl<MutexType, T, A, R> Clone for GenericSender<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             fn clone(&self) -> Self {
                 let old_size =
@@ -811,10 +882,11 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T, A> Drop for GenericSender<MutexType, T, A>
+        impl<MutexType, T, A, R> Drop for GenericSender<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             fn drop(&mut self) {
                 if self.inner.senders.fetch_sub(1, Ordering::Release) != 1 {
@@ -827,10 +899,11 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T, A> Clone for GenericReceiver<MutexType, T, A>
+        impl<MutexType, T, A, R> Clone for GenericReceiver<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             fn clone(&self) -> Self {
                 let old_size =
@@ -844,10 +917,11 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T, A> Drop for GenericReceiver<MutexType, T, A>
+        impl<MutexType, T, A, R> Drop for GenericReceiver<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
+            R: Tracker<T>,
         {
             fn drop(&mut self) {
                 if self.inner.receivers.fetch_sub(1, Ordering::Release) != 1 {
@@ -875,19 +949,48 @@ mod if_alloc {
         /// # use futures_intrusive::channel::shared::channel;
         /// let (sender, receiver) = channel::<i32>(4);
         /// ```
-        pub fn generic_channel<MutexType, T, A>(
+        pub fn generic_channel<MutexType, T, A, R>(
             capacity: usize,
         ) -> (
-            GenericSender<MutexType, T, A>,
-            GenericReceiver<MutexType, T, A>,
+            GenericSender<MutexType, T, A, R>,
+            GenericReceiver<MutexType, T, A, R>,
         )
         where
             MutexType: RawMutex,
             A: RingBuf<Item = T>,
             T: Send,
+            R: Tracker<T> + Default,
+        {
+            generic_channel_with_tracker(capacity, Default::default())
+        }
+
+        /// Creates a new Channel with provided tracker which can be used to exchange
+        /// values of type `T` between concurrent tasks. The ends of the Channel
+        /// are represented through the returned Sender and Receiver.
+        /// Both the Sender and Receiver can be cloned in order to let more tasks
+        /// interact with the Channel.
+        ///
+        /// As soon es either all Senders or all Receivers are closed, the Channel
+        /// itself will be closed.
+        ///
+        /// The channel can buffer up to `capacity` items internally.
+        pub fn generic_channel_with_tracker<MutexType, T, A, R>(
+            capacity: usize,
+            tracker: R,
+        ) -> (
+            GenericSender<MutexType, T, A, R>,
+            GenericReceiver<MutexType, T, A, R>,
+        )
+        where
+            MutexType: RawMutex,
+            A: RingBuf<Item = T>,
+            T: Send,
+            R: Tracker<T>,
         {
             let inner = std::sync::Arc::new(GenericChannelSharedState {
-                channel: GenericChannel::with_capacity(capacity),
+                channel: GenericChannel::with_capacity_and_tracker(
+                    capacity, tracker,
+                ),
                 senders: AtomicUsize::new(1),
                 receivers: AtomicUsize::new(1),
             });
@@ -900,10 +1003,11 @@ mod if_alloc {
             (sender, receiver)
         }
 
-        impl<MutexType, T, A> GenericSender<MutexType, T, A>
+        impl<MutexType, T, A, R> GenericSender<MutexType, T, A, R>
         where
             MutexType: 'static + RawMutex,
             A: 'static + RingBuf<Item = T>,
+            R: 'static + Tracker<T>,
         {
             /// Returns a future that gets fulfilled when the value has been written to
             /// the channel.
@@ -938,12 +1042,19 @@ mod if_alloc {
             pub fn close(&self) -> CloseStatus {
                 self.inner.channel.close()
             }
+
+            /// Returns the report collected by tracker
+            #[inline]
+            pub fn tracker_report(&self) -> R::Report {
+                self.inner.channel.tracker_report()
+            }
         }
 
-        impl<MutexType, T, A> GenericReceiver<MutexType, T, A>
+        impl<MutexType, T, A, R> GenericReceiver<MutexType, T, A, R>
         where
             MutexType: 'static + RawMutex,
             A: 'static + RingBuf<Item = T>,
+            R: 'static + Tracker<T>,
         {
             /// Returns a future that gets fulfilled when a value is written to the channel.
             /// If the channels gets closed, the future will resolve to `None`.
@@ -972,11 +1083,17 @@ mod if_alloc {
             ///
             /// This stream does not yield `None` when the channel is empty,
             /// instead it yields `None` when it is terminated.
-            pub fn into_stream(self) -> SharedStream<MutexType, T, A> {
+            pub fn into_stream(self) -> SharedStream<MutexType, T, A, R> {
                 SharedStream {
                     receiver: Some(self),
                     future: None,
                 }
+            }
+
+            /// Returns the report collected by tracker
+            #[inline]
+            pub fn tracker_report(&self) -> R::Report {
+                self.inner.channel.tracker_report()
             }
         }
 
@@ -985,20 +1102,22 @@ mod if_alloc {
         /// Not driving the `SharedStream` to completion after it has been polled
         /// might lead to lost wakeup notifications.
         #[derive(Debug)]
-        pub struct SharedStream<MutexType, T, A>
+        pub struct SharedStream<MutexType, T, A, R>
         where
             MutexType: 'static + RawMutex,
             T: 'static,
             A: 'static + RingBuf<Item = T>,
+            R: Tracker<T>,
         {
-            receiver: Option<GenericReceiver<MutexType, T, A>>,
+            receiver: Option<GenericReceiver<MutexType, T, A, R>>,
             future: Option<ChannelReceiveFuture<MutexType, T>>,
         }
 
-        impl<MutexType, T, A> Stream for SharedStream<MutexType, T, A>
+        impl<MutexType, T, A, R> Stream for SharedStream<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: 'static + RingBuf<Item = T>,
+            R: 'static + Tracker<T>,
         {
             type Item = T;
 
@@ -1051,10 +1170,11 @@ mod if_alloc {
             }
         }
 
-        impl<MutexType, T, A> FusedStream for SharedStream<MutexType, T, A>
+        impl<MutexType, T, A, R> FusedStream for SharedStream<MutexType, T, A, R>
         where
             MutexType: RawMutex,
             A: 'static + RingBuf<Item = T>,
+            R: 'static + Tracker<T>,
         {
             fn is_terminated(&self) -> bool {
                 self.receiver.is_none()
@@ -1074,16 +1194,16 @@ mod if_alloc {
             /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
             ///
             /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
-            pub type Sender<T> =
-                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
+            pub type Sender<T, R> =
+                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>, R>;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
             ///
             /// Uses a `GrowingHeapBuf` whose capacity grows dynamically up to
             /// the given limit. Refer to [`GrowingHeapBuf`] for more information.
             ///
             /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
-            pub type Receiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
+            pub type Receiver<T, R> =
+                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>, R>;
 
             /// Creates a new channel with the given buffering capacity
             ///
@@ -1091,31 +1211,61 @@ mod if_alloc {
             /// the given limit. Refer to [`generic_channel`] and [`GrowingHeapBuf`] for more information.
             ///
             /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
-            pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>)
+            pub fn channel<T>(
+                capacity: usize,
+            ) -> (Sender<T, NoopTracker>, Receiver<T, NoopTracker>)
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
-                    capacity,
-                )
+                generic_channel::<
+                    parking_lot::RawMutex,
+                    T,
+                    GrowingHeapBuf<T>,
+                    NoopTracker,
+                >(capacity)
             }
             /// A [`GenericSender`] implementation backed by [`parking_lot`].
-            pub type UnbufferedSender<T> =
-                GenericSender<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
+            pub type UnbufferedSender<T> = GenericSender<
+                parking_lot::RawMutex,
+                T,
+                GrowingHeapBuf<T>,
+                NoopTracker,
+            >;
             /// A [`GenericReceiver`] implementation backed by [`parking_lot`].
-            pub type UnbufferedReceiver<T> =
-                GenericReceiver<parking_lot::RawMutex, T, GrowingHeapBuf<T>>;
+            pub type UnbufferedReceiver<T> = GenericReceiver<
+                parking_lot::RawMutex,
+                T,
+                GrowingHeapBuf<T>,
+                NoopTracker,
+            >;
 
             /// Creates a new unbuffered channel.
             ///
             /// Refer to [`generic_channel`] for details.
-            pub fn unbuffered_channel<T>() -> (Sender<T>, Receiver<T>)
+            pub fn unbuffered_channel<T>(
+            ) -> (Sender<T, NoopTracker>, Receiver<T, NoopTracker>)
             where
                 T: Send,
             {
-                generic_channel::<parking_lot::RawMutex, T, GrowingHeapBuf<T>>(
-                    0,
-                )
+                unbuffered_channel_with_tracker(NoopTracker)
+            }
+
+            /// Creates a new unbuffered channel with provided tracker
+            ///
+            /// Refer to [`generic_channel`] for details.
+            pub fn unbuffered_channel_with_tracker<T, R>(
+                tracker: R,
+            ) -> (Sender<T, R>, Receiver<T, R>)
+            where
+                T: Send,
+                R: Tracker<T>,
+            {
+                generic_channel_with_tracker::<
+                    parking_lot::RawMutex,
+                    T,
+                    GrowingHeapBuf<T>,
+                    R,
+                >(0, tracker)
             }
         }
 
@@ -1126,3 +1276,4 @@ mod if_alloc {
 
 #[cfg(feature = "std")]
 pub use self::if_alloc::*;
+use crate::tracking::{NoopTracker, Tracker};
