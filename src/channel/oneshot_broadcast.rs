@@ -242,8 +242,8 @@ where
 pub type LocalOneshotBroadcastChannel<T> =
     GenericOneshotBroadcastChannel<NoopLock, T>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -251,17 +251,6 @@ mod if_std {
     /// A [`GenericOneshotBroadcastChannel`] implementation backed by [`parking_lot`].
     pub type OneshotBroadcastChannel<T> =
         GenericOneshotBroadcastChannel<parking_lot::RawMutex, T>;
-}
-
-#[cfg(feature = "std")]
-pub use self::if_std::*;
-
-// The next section should really integrated if the alloc feature is active,
-// since it mainly requires `Arc` to be available. However for simplicity reasons
-// it is currently only activated in std environments.
-#[cfg(feature = "std")]
-mod if_alloc {
-    use super::*;
 
     pub mod shared {
         use super::*;
@@ -308,8 +297,9 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone + 'static,
         {
-            inner:
-                std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
+            inner: alloc::sync::Arc<
+                GenericOneshotChannelSharedState<MutexType, T>,
+            >,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -323,8 +313,9 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone + 'static,
         {
-            inner:
-                std::sync::Arc<GenericOneshotChannelSharedState<MutexType, T>>,
+            inner: alloc::sync::Arc<
+                GenericOneshotChannelSharedState<MutexType, T>,
+            >,
         }
 
         impl<MutexType, T> core::fmt::Debug
@@ -397,9 +388,10 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Send + Clone,
         {
-            let inner = std::sync::Arc::new(GenericOneshotChannelSharedState {
-                channel: GenericOneshotBroadcastChannel::new(),
-            });
+            let inner =
+                alloc::sync::Arc::new(GenericOneshotChannelSharedState {
+                    channel: GenericOneshotBroadcastChannel::new(),
+                });
 
             let sender = GenericOneshotBroadcastSender {
                 inner: inner.clone(),
@@ -441,9 +433,9 @@ mod if_alloc {
             }
         }
 
-        // Export parking_lot based shared channels in std mode
-        #[cfg(feature = "std")]
-        mod if_std {
+        // Export parking_lot based shared channels in alloc mode
+        #[cfg(feature = "alloc")]
+        mod if_alloc {
             use super::*;
 
             /// A [`GenericOneshotBroadcastSender`] implementation backed by [`parking_lot`].
@@ -465,10 +457,10 @@ mod if_alloc {
             }
         }
 
-        #[cfg(feature = "std")]
-        pub use self::if_std::*;
+        #[cfg(feature = "alloc")]
+        pub use self::if_alloc::*;
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::if_alloc::*;

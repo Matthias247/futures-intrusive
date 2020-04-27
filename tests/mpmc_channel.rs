@@ -1064,8 +1064,8 @@ gen_mpmc_tests!(
     LocalUnbufferedChannel
 );
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
     use futures_intrusive::channel::{
         shared::channel, shared::ChannelReceiveFuture,
@@ -1466,8 +1466,8 @@ mod if_std {
 
             // Cancel 2 futures. Only the remaining ones should get completed
             // Safety: We are not using these pins again so this is safe.
-            unsafe { std::pin::Pin::into_inner_unchecked(poll2).cancel() };
-            unsafe { std::pin::Pin::into_inner_unchecked(poll4).cancel() };
+            unsafe { core::pin::Pin::into_inner_unchecked(poll2).cancel() };
+            unsafe { core::pin::Pin::into_inner_unchecked(poll4).cancel() };
 
             assert!(poll1.as_mut().poll(cx).is_pending());
             assert!(poll3.as_mut().poll(cx).is_pending());
@@ -1525,8 +1525,8 @@ mod if_std {
 
         // Cancel 2 futures. Only the remaining ones should get completed
         // Safety: We are not using these pins again so this is safe.
-        unsafe { std::pin::Pin::into_inner_unchecked(poll5).cancel() };
-        unsafe { std::pin::Pin::into_inner_unchecked(poll6).cancel() };
+        unsafe { core::pin::Pin::into_inner_unchecked(poll5).cancel() };
+        unsafe { core::pin::Pin::into_inner_unchecked(poll6).cancel() };
 
         assert!(poll3.as_mut().poll(cx).is_pending());
         assert!(poll4.as_mut().poll(cx).is_pending());

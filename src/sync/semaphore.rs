@@ -541,8 +541,8 @@ pub type LocalSemaphoreReleaser<'a> = GenericSemaphoreReleaser<'a, NoopLock>;
 pub type LocalSemaphoreAcquireFuture<'a> =
     GenericSemaphoreAcquireFuture<'a, NoopLock>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -557,5 +557,5 @@ mod if_std {
         GenericSemaphoreAcquireFuture<'a, parking_lot::RawMutex>;
 }
 
-#[cfg(feature = "std")]
-pub use self::if_std::*;
+#[cfg(feature = "alloc")]
+pub use self::if_alloc::*;

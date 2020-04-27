@@ -300,8 +300,8 @@ pub type LocalManualResetEvent = GenericManualResetEvent<NoopLock>;
 /// A [`GenericWaitForEventFuture`] for [`LocalManualResetEvent`].
 pub type LocalWaitForEventFuture<'a> = GenericWaitForEventFuture<'a, NoopLock>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -313,5 +313,5 @@ mod if_std {
         GenericWaitForEventFuture<'a, parking_lot::RawMutex>;
 }
 
-#[cfg(feature = "std")]
-pub use self::if_std::*;
+#[cfg(feature = "alloc")]
+pub use self::if_alloc::*;

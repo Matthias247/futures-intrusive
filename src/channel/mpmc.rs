@@ -642,9 +642,10 @@ pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
 pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
+
     // Export a thread-safe version using parking_lot::RawMutex
 
     // TODO: We might also want to bind Channel to GenericChannel<..., FixedHeapBuf>,
@@ -662,17 +663,6 @@ mod if_std {
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
-}
-
-#[cfg(feature = "std")]
-pub use self::if_std::*;
-
-// The next section should really integrated if the alloc feature is active,
-// since it mainly requires `Arc` to be available. However for simplicity reasons
-// it is currently only activated in std environments.
-#[cfg(feature = "std")]
-mod if_alloc {
-    use super::*;
 
     /// Channel implementations where Sender and Receiver sides are cloneable
     /// and owned.
@@ -681,7 +671,7 @@ mod if_alloc {
     pub mod shared {
         use super::*;
         use crate::channel::shared::{ChannelReceiveFuture, ChannelSendFuture};
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use core::sync::atomic::{AtomicUsize, Ordering};
 
         /// Shared Channel State, which is referenced by Senders and Receivers
         struct GenericChannelSharedState<MutexType, T, A>
@@ -757,7 +747,7 @@ mod if_alloc {
             A: RingBuf<Item = T>,
             T: 'static,
         {
-            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
+            inner: alloc::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
         }
 
         /// The receiving side of a channel which can be used to exchange values
@@ -771,7 +761,7 @@ mod if_alloc {
             A: RingBuf<Item = T>,
             T: 'static,
         {
-            inner: std::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
+            inner: alloc::sync::Arc<GenericChannelSharedState<MutexType, T, A>>,
         }
 
         impl<MutexType, T, A> core::fmt::Debug for GenericSender<MutexType, T, A>
@@ -820,7 +810,7 @@ mod if_alloc {
                 if self.inner.senders.fetch_sub(1, Ordering::Release) != 1 {
                     return;
                 }
-                std::sync::atomic::fence(Ordering::Acquire);
+                core::sync::atomic::fence(Ordering::Acquire);
                 // Close the channel, before last sender gets destroyed
                 // TODO: We could potentially avoid this, if no receiver is left
                 self.inner.channel.close();
@@ -853,7 +843,7 @@ mod if_alloc {
                 if self.inner.receivers.fetch_sub(1, Ordering::Release) != 1 {
                     return;
                 }
-                std::sync::atomic::fence(Ordering::Acquire);
+                core::sync::atomic::fence(Ordering::Acquire);
                 // Close the channel, before last receiver gets destroyed
                 // TODO: We could potentially avoid this, if no sender is left
                 self.inner.channel.close();
@@ -886,7 +876,7 @@ mod if_alloc {
             A: RingBuf<Item = T>,
             T: Send,
         {
-            let inner = std::sync::Arc::new(GenericChannelSharedState {
+            let inner = alloc::sync::Arc::new(GenericChannelSharedState {
                 channel: GenericChannel::with_capacity(capacity),
                 senders: AtomicUsize::new(1),
                 receivers: AtomicUsize::new(1),
@@ -1062,8 +1052,8 @@ mod if_alloc {
         }
 
         // Export parking_lot based shared channels in std mode
-        #[cfg(feature = "std")]
-        mod if_std {
+        #[cfg(feature = "alloc")]
+        mod if_alloc {
             use super::*;
 
             use crate::buffer::GrowingHeapBuf;
@@ -1119,10 +1109,10 @@ mod if_alloc {
             }
         }
 
-        #[cfg(feature = "std")]
-        pub use self::if_std::*;
+        #[cfg(feature = "alloc")]
+        pub use self::if_alloc::*;
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::if_alloc::*;

@@ -19,7 +19,7 @@ mod oneshot;
 
 pub use self::oneshot::{GenericOneshotChannel, LocalOneshotChannel};
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::oneshot::OneshotChannel;
 
 mod oneshot_broadcast;
@@ -28,7 +28,7 @@ pub use self::oneshot_broadcast::{
     GenericOneshotBroadcastChannel, LocalOneshotBroadcastChannel,
 };
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::oneshot_broadcast::OneshotBroadcastChannel;
 
 mod state_broadcast;
@@ -37,20 +37,17 @@ pub use state_broadcast::{
     StateReceiveFuture,
 };
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::state_broadcast::StateBroadcastChannel;
 
 mod mpmc;
 
 pub use self::mpmc::{GenericChannel, LocalChannel, LocalUnbufferedChannel};
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::mpmc::{Channel, UnbufferedChannel};
 
-// The next section should really integrated if the alloc feature is active,
-// since it mainly requires `Arc` to be available. However for simplicity reasons
-// it is currently only activated in std environments.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod if_alloc {
 
     /// Channel implementations where Sender and Receiver sides are cloneable
@@ -66,5 +63,5 @@ mod if_alloc {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::if_alloc::*;

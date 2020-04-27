@@ -169,10 +169,10 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
-    use std::collections::VecDeque;
+    use alloc::collections::VecDeque;
 
     /// A Ring Buffer which stores all items on the heap.
     ///
@@ -313,14 +313,14 @@ mod if_std {
     }
 }
 
-#[cfg(feature = "std")]
-pub use if_std::*;
+#[cfg(feature = "alloc")]
+pub use if_alloc::*;
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod tests {
     use super::*;
-    use crate::buffer::ring_buffer::if_std::FixedHeapBuf;
+    use crate::buffer::ring_buffer::if_alloc::FixedHeapBuf;
 
     fn test_ring_buf<Buf: RingBuf<Item = u32>>(mut buf: Buf) {
         assert_eq!(5, buf.capacity());
