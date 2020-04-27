@@ -14,5 +14,5 @@ before_script:
 script:
   - cargo fmt --all -- --check
   - cargo test --no-default-features
-  - cargo-test --all-targets --no-default-features --features alloc
+  - cargo test --all-targets --no-default-features --features alloc
   - cargo test --all-targets --all-features
