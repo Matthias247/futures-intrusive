@@ -223,6 +223,7 @@ pub mod buffer;
 
 #[allow(dead_code)]
 mod intrusive_double_linked_list;
+mod intrusive_pairing_heap;
 
 pub mod channel;
 pub mod sync;

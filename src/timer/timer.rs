@@ -2,7 +2,7 @@
 
 use super::clock::Clock;
 use crate::{
-    intrusive_double_linked_list::{LinkedList, ListNode},
+    intrusive_pairing_heap::{HeapNode, PairingHeap},
     utils::update_waker_ref,
     NoopLock,
 };
@@ -55,6 +55,8 @@ impl PartialEq for TimerQueueEntry {
     }
 }
 
+impl Eq for TimerQueueEntry {}
+
 impl PartialOrd for TimerQueueEntry {
     fn partial_cmp(
         &self,
@@ -65,19 +67,25 @@ impl PartialOrd for TimerQueueEntry {
     }
 }
 
+impl Ord for TimerQueueEntry {
+    fn cmp(&self, other: &TimerQueueEntry) -> core::cmp::Ordering {
+        self.expiry.cmp(&other.expiry)
+    }
+}
+
 /// Internal state of the timer
 struct TimerState {
     /// The clock which is utilized
     clock: &'static dyn Clock,
-    /// The list of waiters, which are waiting for their timer to expire
-    waiters: LinkedList<TimerQueueEntry>,
+    /// The heap of waiters, which are waiting for their timer to expire
+    waiters: PairingHeap<TimerQueueEntry>,
 }
 
 impl TimerState {
     fn new(clock: &'static dyn Clock) -> TimerState {
         TimerState {
             clock,
-            waiters: LinkedList::new(),
+            waiters: PairingHeap::new(),
         }
     }
 
@@ -86,7 +94,7 @@ impl TimerState {
     /// to be stable until it gets removed from the queue.
     unsafe fn try_wait(
         &mut self,
-        wait_node: &mut ListNode<TimerQueueEntry>,
+        wait_node: &mut HeapNode<TimerQueueEntry>,
         cx: &mut Context<'_>,
     ) -> Poll<()> {
         match wait_node.state {
@@ -100,7 +108,7 @@ impl TimerState {
                     // Added the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Registered;
-                    self.waiters.add_sorted(wait_node);
+                    self.waiters.insert(wait_node);
                     Poll::Pending
                 }
             }
@@ -116,17 +124,13 @@ impl TimerState {
         }
     }
 
-    fn remove_waiter(&mut self, wait_node: &mut ListNode<TimerQueueEntry>) {
+    fn remove_waiter(&mut self, wait_node: &mut HeapNode<TimerQueueEntry>) {
         // TimerFuture only needs to get removed if it had been added to
         // the wait queue of the timer. This has happened in the PollState::Registered case.
         if let PollState::Registered = wait_node.state {
             // Safety: Due to the state, we know that the node must be part
-            // of the waiter list
-            if !unsafe { self.waiters.remove(wait_node) } {
-                // Panic if the address isn't found. This can only happen if the contract was
-                // violated, e.g. the TimerQueueEntry got moved after the initial poll.
-                panic!("Future could not be removed from wait queue");
-            }
+            // of the waiter heap
+            unsafe { self.waiters.remove(wait_node) };
             wait_node.state = PollState::Unregistered;
         }
     }
@@ -136,32 +140,32 @@ impl TimerState {
     /// For thread-safe timers, the returned value is not precise and subject to
     /// race-conditions, since other threads can add timer in the meantime.
     fn next_expiration(&self) -> Option<u64> {
-        self.waiters.peek_first().map(|first| first.expiry)
+        // Safety: We ensure that any node in the heap remains alive
+        unsafe { self.waiters.peek_min().map(|first| first.as_ref().expiry) }
     }
 
     /// Checks whether any of the attached Futures is expired
     fn check_expirations(&mut self) {
         let now = self.clock.now();
-        loop {
-            match self.waiters.peek_first() {
-                None => return,
-                Some(first) => {
-                    let first_expiry = first.expiry;
-                    if now >= first_expiry {
-                        // The timer is expired.
-                        first.state = PollState::Expired;
-                        if let Some(task) = first.task.take() {
-                            task.wake();
-                        }
-                    } else {
-                        // Remaining timers are not expired
-                        break;
+        while let Some(mut first) = self.waiters.peek_min() {
+            // Safety: We ensure that any node in the heap remains alive
+            unsafe {
+                let entry = first.as_mut();
+                let first_expiry = entry.expiry;
+                if now >= first_expiry {
+                    // The timer is expired.
+                    entry.state = PollState::Expired;
+                    if let Some(task) = entry.task.take() {
+                        task.wake();
                     }
+                } else {
+                    // Remaining timers are not expired
+                    break;
                 }
-            }
 
-            // Remove the expired timer
-            self.waiters.remove_first();
+                // Remove the expired timer
+                self.waiters.remove(entry);
+            }
         }
     }
 }
@@ -171,11 +175,11 @@ impl TimerState {
 trait TimerAccess {
     unsafe fn try_wait(
         &self,
-        wait_node: &mut ListNode<TimerQueueEntry>,
+        wait_node: &mut HeapNode<TimerQueueEntry>,
         cx: &mut Context<'_>,
     ) -> Poll<()>;
 
-    fn remove_waiter(&self, wait_node: &mut ListNode<TimerQueueEntry>);
+    fn remove_waiter(&self, wait_node: &mut HeapNode<TimerQueueEntry>);
 }
 
 /// An asynchronously awaitable timer which is bound to a thread.
@@ -282,13 +286,10 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
 
     /// Returns a deadline based on the current timestamp plus the given Duration
     fn deadline_from_now(&self, duration: Duration) -> u64 {
-        // TODO: Make this more efficient and with better overflow checking
-        let now = self.inner.lock().clock.now() as u128;
+        let now = self.inner.lock().clock.now();
         let duration_ms =
-            core::cmp::min(duration.as_millis(), core::u64::MAX as u128);
-        let expiry =
-            core::cmp::min(now + duration_ms, core::u64::MAX as u128) as u64;
-        expiry
+            core::cmp::min(duration.as_millis(), core::u64::MAX as u128) as u64;
+        now.saturating_add(duration_ms)
     }
 }
 
@@ -304,7 +305,7 @@ impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
     fn deadline(&self, timestamp: u64) -> LocalTimerFuture {
         LocalTimerFuture {
             timer: Some(self),
-            wait_node: ListNode::new(TimerQueueEntry::new(timestamp)),
+            wait_node: HeapNode::new(TimerQueueEntry::new(timestamp)),
         }
     }
 }
@@ -325,7 +326,7 @@ where
         TimerFuture {
             timer_future: LocalTimerFuture {
                 timer: Some(self),
-                wait_node: ListNode::new(TimerQueueEntry::new(timestamp)),
+                wait_node: HeapNode::new(TimerQueueEntry::new(timestamp)),
             },
         }
     }
@@ -334,13 +335,13 @@ where
 impl<MutexType: RawMutex> TimerAccess for GenericTimerService<MutexType> {
     unsafe fn try_wait(
         &self,
-        wait_node: &mut ListNode<TimerQueueEntry>,
+        wait_node: &mut HeapNode<TimerQueueEntry>,
         cx: &mut Context<'_>,
     ) -> Poll<()> {
         self.inner.lock().try_wait(wait_node, cx)
     }
 
-    fn remove_waiter(&self, wait_node: &mut ListNode<TimerQueueEntry>) {
+    fn remove_waiter(&self, wait_node: &mut HeapNode<TimerQueueEntry>) {
         self.inner.lock().remove_waiter(wait_node)
     }
 }
@@ -351,7 +352,7 @@ pub struct LocalTimerFuture<'a> {
     /// The Timer that is associated with this TimerFuture
     timer: Option<&'a dyn TimerAccess>,
     /// Node for waiting on the timer
-    wait_node: ListNode<TimerQueueEntry>,
+    wait_node: HeapNode<TimerQueueEntry>,
 }
 
 impl<'a> core::fmt::Debug for LocalTimerFuture<'a> {
