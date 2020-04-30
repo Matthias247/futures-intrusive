@@ -320,10 +320,7 @@ impl<'a, MutexType, T> Drop for ChannelSendFuture<'a, MutexType, T> {
     }
 }
 
-// The next section should really integrated if the alloc feature is active,
-// since it mainly requires `Arc` to be available. However for simplicity reasons
-// it is currently only activated in std environments.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod if_alloc {
     use super::*;
 
@@ -339,7 +336,7 @@ mod if_alloc {
         pub struct ChannelReceiveFuture<MutexType, T> {
             /// The Channel that is associated with this ChannelReceiveFuture
             pub(crate) channel:
-                Option<std::sync::Arc<dyn ChannelReceiveAccess<T>>>,
+                Option<alloc::sync::Arc<dyn ChannelReceiveAccess<T>>>,
             /// Node for waiting on the channel
             pub(crate) wait_node: ListNode<RecvWaitQueueEntry>,
             /// Marker for mutex type
@@ -423,7 +420,7 @@ mod if_alloc {
         pub struct ChannelSendFuture<MutexType, T> {
             /// The LocalChannel that is associated with this ChannelSendFuture
             pub(crate) channel:
-                Option<std::sync::Arc<dyn ChannelSendAccess<T>>>,
+                Option<alloc::sync::Arc<dyn ChannelSendAccess<T>>>,
             /// Node for waiting on the channel
             pub(crate) wait_node: ListNode<SendWaitQueueEntry<T>>,
             /// Marker for mutex type
@@ -518,5 +515,5 @@ mod if_alloc {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::if_alloc::*;

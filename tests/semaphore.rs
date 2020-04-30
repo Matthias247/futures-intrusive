@@ -565,8 +565,8 @@ macro_rules! gen_semaphore_tests {
 
 gen_semaphore_tests!(local_semaphore_tests, LocalSemaphore);
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
     use futures::FutureExt;
     use futures_intrusive::sync::Semaphore;

@@ -19,12 +19,12 @@ pub trait Clock: Sync {
 /// It can be used in a test case as demonstrated in the following example:
 /// ```
 /// use futures_intrusive::timer::MockClock;
-/// # #[cfg(feature = "std")]
+/// # #[cfg(feature = "alloc")]
 /// # use futures_intrusive::timer::TimerService;
 ///
 /// static TEST_CLOCK: MockClock = MockClock::new();
 /// TEST_CLOCK.set_time(2300); // Set the current time
-/// # #[cfg(feature = "std")]
+/// # #[cfg(feature = "alloc")]
 /// let timer = TimerService::new(&TEST_CLOCK);
 /// ```
 pub struct MockClock {

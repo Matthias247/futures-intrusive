@@ -35,7 +35,9 @@ without default features:
 futures-intrusive = { version = "^0.3", default-features = false }
 ```
 
-The crate defines a feature `std`, which can be used in order to re-enable `std` features.
+The crate defines a feature `alloc`, which can be used in order to re-enable
+`alloc` features. Also defined is `std`, which can be used in order to re-enable
+`std` features.
 
 ## Minimum Rust version
 

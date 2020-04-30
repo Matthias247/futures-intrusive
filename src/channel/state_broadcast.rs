@@ -428,8 +428,8 @@ impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T>
 pub type LocalStateBroadcastChannel<T> =
     GenericStateBroadcastChannel<NoopLock, T>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -437,21 +437,10 @@ mod if_std {
     /// A [`GenericStateBroadcastChannel`] implementation backed by [`parking_lot`].
     pub type StateBroadcastChannel<T> =
         GenericStateBroadcastChannel<parking_lot::RawMutex, T>;
-}
-
-#[cfg(feature = "std")]
-pub use self::if_std::*;
-
-// The next section should really integrated if the alloc feature is active,
-// since it mainly requires `Arc` to be available. However for simplicity reasons
-// it is currently only activated in std environments.
-#[cfg(feature = "std")]
-mod if_alloc {
-    use super::*;
 
     pub mod shared {
         use super::*;
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use core::sync::atomic::{AtomicUsize, Ordering};
 
         struct GenericStateBroadcastChannelSharedState<MutexType, T>
         where
@@ -504,7 +493,7 @@ mod if_alloc {
         #[must_use = "futures do nothing unless polled"]
         pub struct StateReceiveFuture<MutexType, T> {
             /// The Channel that is associated with this StateReceiveFuture
-            channel: Option<std::sync::Arc<dyn ChannelReceiveAccess<T>>>,
+            channel: Option<alloc::sync::Arc<dyn ChannelReceiveAccess<T>>>,
             /// Node for waiting on the channel
             wait_node: ListNode<RecvWaitQueueEntry>,
             /// Marker for mutex type
@@ -587,7 +576,7 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone + 'static,
         {
-            inner: std::sync::Arc<
+            inner: alloc::sync::Arc<
                 GenericStateBroadcastChannelSharedState<MutexType, T>,
             >,
         }
@@ -602,7 +591,7 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone + 'static,
         {
-            inner: std::sync::Arc<
+            inner: alloc::sync::Arc<
                 GenericStateBroadcastChannelSharedState<MutexType, T>,
             >,
         }
@@ -653,7 +642,7 @@ mod if_alloc {
                 if self.inner.senders.fetch_sub(1, Ordering::Release) != 1 {
                     return;
                 }
-                std::sync::atomic::fence(Ordering::Acquire);
+                core::sync::atomic::fence(Ordering::Acquire);
                 // Close the channel, before last sender gets destroyed
                 // TODO: We could potentially avoid this, if no receiver is left
                 self.inner.channel.close();
@@ -686,7 +675,7 @@ mod if_alloc {
                 if self.inner.receivers.fetch_sub(1, Ordering::Release) != 1 {
                     return;
                 }
-                std::sync::atomic::fence(Ordering::Acquire);
+                core::sync::atomic::fence(Ordering::Acquire);
                 // Close the channel, before last receiver gets destroyed
                 // TODO: We could potentially avoid this, if no sender is left
                 self.inner.channel.close();
@@ -715,12 +704,13 @@ mod if_alloc {
             MutexType: RawMutex,
             T: Clone + Send,
         {
-            let inner =
-                std::sync::Arc::new(GenericStateBroadcastChannelSharedState {
+            let inner = alloc::sync::Arc::new(
+                GenericStateBroadcastChannelSharedState {
                     channel: GenericStateBroadcastChannel::new(),
                     senders: AtomicUsize::new(1),
                     receivers: AtomicUsize::new(1),
-                });
+                },
+            );
 
             let sender = GenericStateSender {
                 inner: inner.clone(),
@@ -782,9 +772,9 @@ mod if_alloc {
             }
         }
 
-        // Export parking_lot based shared channels in std mode
-        #[cfg(feature = "std")]
-        mod if_std {
+        // Export parking_lot based shared channels in alloc mode
+        #[cfg(feature = "alloc")]
+        mod if_alloc {
             use super::*;
 
             /// A [`GenericStateSender`] implementation backed by [`parking_lot`].
@@ -806,10 +796,10 @@ mod if_alloc {
             }
         }
 
-        #[cfg(feature = "std")]
-        pub use self::if_std::*;
+        #[cfg(feature = "alloc")]
+        pub use self::if_alloc::*;
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use self::if_alloc::*;

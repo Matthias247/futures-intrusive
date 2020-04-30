@@ -159,7 +159,7 @@
 //! use internal synchronization for this in form of an embedded `Mutex` of
 //! [`parking_lot::Mutex`] type.
 //!
-//! The non-local flavors are only available in `std` environments.
+//! The non-local flavors are only available in `alloc` environments.
 //!
 //! ### Shared flavor
 //!
@@ -175,7 +175,7 @@
 //! generic associated types (GATs).
 //!
 //! Due to the requirement of atomic reference counting, these types are
-//! currently only available for `std` environments.
+//! currently only available for `alloc` environments.
 //!
 //! ### Generic flavor
 //!
@@ -203,7 +203,7 @@
 //!
 //! The most important differences are:
 //! - This library has a bigger focus on `no-std` environments, and does not
-//!   only try to provide an implementation for `std`.
+//!   only try to provide an implementation for `alloc` or `std`.
 //! - The types in this library do not require dynamic memory allocation for
 //!   waking up an arbitrary number of tasks waiting on a particular
 //!   `Future`. Other libraries typically require heap-allocated nodes of
@@ -215,6 +215,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs, missing_debug_implementations)]
 #![deny(bare_trait_objects)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 mod noop_lock;
 pub use noop_lock::NoopLock;

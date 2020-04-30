@@ -289,9 +289,10 @@ impl<T> LinkedList<T> {
     }
 }
 
-#[cfg(all(test, feature = "std"))] // Tests make use of Vec at the moment
+#[cfg(all(test, feature = "alloc"))] // Tests make use of Vec at the moment
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     fn collect_list<T: Copy>(mut list: LinkedList<T>) -> Vec<T> {
         let mut result = Vec::new();

@@ -478,8 +478,8 @@ pub type LocalMutexGuard<'a, T> = GenericMutexGuard<'a, NoopLock, T>;
 /// A [`GenericMutexLockFuture`] for [`LocalMutex`].
 pub type LocalMutexLockFuture<'a, T> = GenericMutexLockFuture<'a, NoopLock, T>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -494,5 +494,5 @@ mod if_std {
         GenericMutexLockFuture<'a, parking_lot::RawMutex, T>;
 }
 
-#[cfg(feature = "std")]
-pub use self::if_std::*;
+#[cfg(feature = "alloc")]
+pub use self::if_alloc::*;

@@ -446,8 +446,8 @@ impl<'a> FusedFuture for TimerFuture<'a> {
 /// A [`GenericTimerService`] implementation which is not thread-safe.
 pub type LocalTimerService = GenericTimerService<NoopLock>;
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -456,5 +456,5 @@ mod if_std {
     pub type TimerService = GenericTimerService<parking_lot::RawMutex>;
 }
 
-#[cfg(feature = "std")]
-pub use self::if_std::*;
+#[cfg(feature = "alloc")]
+pub use self::if_alloc::*;

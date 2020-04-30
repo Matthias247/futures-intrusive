@@ -355,8 +355,8 @@ gen_state_broadcast_tests!(
     LocalStateBroadcastChannel
 );
 
-#[cfg(feature = "std")]
-mod if_std {
+#[cfg(feature = "alloc")]
+mod if_alloc {
     use super::*;
     use futures_intrusive::channel::{
         shared::state_broadcast_channel, StateBroadcastChannel,
