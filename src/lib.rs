@@ -82,7 +82,7 @@
 //! - Provide implementations of common synchronization primitives in a platform
 //!   independent fashion.
 //! - Support `no-std` environments. As many types as possible are also provided
-//!   for `alloc` environments. The library should boost the ability to use
+//!   for `no-std` environments. The library should boost the ability to use
 //!   async Rust code in environments like:
 //!   - Microcontrollers (RTOS and bare-metal)
 //!   - Kernels
