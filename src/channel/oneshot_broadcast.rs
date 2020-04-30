@@ -307,7 +307,6 @@ mod if_alloc {
         ///
         /// Tasks can receive values from the channel through the `receive` method.
         /// The returned Future will get resolved when a value is sent into the channel.
-        #[derive(Clone)]
         pub struct GenericOneshotBroadcastReceiver<MutexType, T>
         where
             MutexType: RawMutex,
@@ -316,6 +315,20 @@ mod if_alloc {
             inner: alloc::sync::Arc<
                 GenericOneshotChannelSharedState<MutexType, T>,
             >,
+        }
+
+        // Manual `Clone` implementation, since #[derive(Clone)] also requires
+        // the Mutex to be `Clone`
+        impl<MutexType, T> Clone for GenericOneshotBroadcastReceiver<MutexType, T>
+        where
+            MutexType: RawMutex,
+            T: Clone + 'static,
+        {
+            fn clone(&self) -> Self {
+                Self {
+                    inner: self.inner.clone(),
+                }
+            }
         }
 
         impl<MutexType, T> core::fmt::Debug
