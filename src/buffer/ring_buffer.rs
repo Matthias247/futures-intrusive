@@ -32,6 +32,10 @@ pub trait RingBuf {
     /// Returns the oldest item inside the buffer.
     /// Panics if there is no available item.
     fn pop(&mut self) -> Self::Item;
+
+    /// Returns a reference to the oldest item inside the buffer.
+    /// Panics if there is no available item.
+    fn peek(&self) -> &Self::Item;
 }
 
 /// An array-backed Ring Buffer
@@ -148,6 +152,17 @@ where
         self.size -= 1;
         val
     }
+
+    #[inline]
+    fn peek(&self) -> &Self::Item {
+        assert!(self.size > 0);
+        // Safety: We asserted that there is an element available, so it must
+        // have been written before.
+        unsafe {
+            let arr_ptr = self.buffer.as_ptr() as *const T;
+            &*arr_ptr.add(self.recv_idx)
+        }
+    }
 }
 
 impl<T, A> Drop for ArrayBuf<T, A>
@@ -240,6 +255,12 @@ mod if_alloc {
             assert!(self.buffer.len() > 0);
             self.buffer.pop_front().unwrap()
         }
+
+        #[inline]
+        fn peek(&self) -> &Self::Item {
+            assert!(self.buffer.len() > 0);
+            self.buffer.front().unwrap()
+        }
     }
 
     /// A Ring Buffer which stores all items on the heap but grows dynamically.
@@ -310,6 +331,12 @@ mod if_alloc {
             debug_assert!(self.buffer.len() > 0);
             self.buffer.pop_front().unwrap()
         }
+
+        #[inline]
+        fn peek(&self) -> &Self::Item {
+            assert!(self.buffer.len() > 0);
+            self.buffer.front().unwrap()
+        }
     }
 }
 
@@ -335,9 +362,12 @@ mod tests {
         assert_eq!(3, buf.len());
         assert_eq!(false, buf.is_empty());
         assert_eq!(true, buf.can_push());
+        assert_eq!(buf.peek(), &1);
 
         assert_eq!(1, buf.pop());
+        assert_eq!(buf.peek(), &2);
         assert_eq!(2, buf.pop());
+        assert_eq!(buf.peek(), &3);
         assert_eq!(1, buf.len());
         assert_eq!(false, buf.is_empty());
         assert_eq!(3, buf.pop());
@@ -352,6 +382,7 @@ mod tests {
         }
 
         for (i, val) in [4, 5, 6, 7, 8].iter().enumerate() {
+            assert_eq!(buf.peek(), val);
             assert_eq!(*val, buf.pop());
             assert_eq!(4 - i, buf.len());
             assert_eq!(true, buf.can_push());

@@ -252,6 +252,41 @@ where
         }
     }
 
+    /// Tries to peek a value from the sending waiter which has been waiting
+    /// longest on the send operation to complete.
+    fn try_peek_value_from_sender(&self) -> Option<&T> {
+        // Safety: The method is only called inside the lock on a consistent
+        // list.
+        match self.send_waiters.peek_last() {
+            Some(last_sender) => {
+                // This path should be only used for 0 capacity queues.
+                // Since the list is not empty, a value is available.
+                // Extract it from the sender in order to return it
+                debug_assert_eq!(0, self.buffer.capacity());
+
+                last_sender.value.as_ref()
+            }
+            None => None,
+        }
+    }
+
+    /// Tries to access the oldest value from the channel without waiting.
+    fn try_access<F, O>(&self, f: F) -> Result<O, TryReceiveError>
+    where
+        F: FnOnce(&T) -> O,
+    {
+        if !self.buffer.is_empty() {
+            let output = f(self.buffer.peek());
+            Ok(output)
+        } else if let Some(val) = self.try_peek_value_from_sender() {
+            Ok(f(val))
+        } else if self.is_closed {
+            Err(TryReceiveError::Closed)
+        } else {
+            Err(TryReceiveError::Empty)
+        }
+    }
+
     /// Tries to read the value from the channel.
     /// If the value isn't available yet, the ChannelReceiveFuture gets added to the
     /// wait queue at the channel, and will be signalled once ready.
@@ -471,6 +506,15 @@ where
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Attempt to access a reference to the oldest value in the channel
+    /// without waiting.
+    pub fn try_access<F, O>(&self, f: F) -> Result<O, TryReceiveError>
+    where
+        F: FnOnce(&T) -> O,
+    {
+        self.inner.lock().try_access(f)
     }
 
     /// Returns a stream that will receive values from this channel.
