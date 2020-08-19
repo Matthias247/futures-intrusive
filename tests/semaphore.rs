@@ -569,9 +569,10 @@ gen_semaphore_tests!(local_semaphore_tests, LocalSemaphore);
 mod if_alloc {
     use super::*;
     use futures::FutureExt;
-    use futures_intrusive::sync::Semaphore;
+    use futures_intrusive::sync::{Semaphore, SharedSemaphore};
 
     gen_semaphore_tests!(semaphore_tests, Semaphore);
+    gen_semaphore_tests!(shared_semaphore_tests, SharedSemaphore);
 
     fn is_send<T: Send>(_: &T) {}
 
