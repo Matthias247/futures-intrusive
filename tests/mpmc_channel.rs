@@ -1420,7 +1420,7 @@ mod if_alloc {
         assert!(stream.as_mut().poll_next(cx).is_pending());
 
         // This should terminate the stream.
-        assert!(sender.close().is_newly_closed());
+        assert!(stream.close().is_newly_closed());
 
         // This should unblock.
         assert_next_done(cx, &mut stream, None);
