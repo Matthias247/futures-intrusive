@@ -23,5 +23,5 @@ unsafe impl RawMutex for NoopLock {
         true
     }
 
-    fn unlock(&self) {}
+    unsafe fn unlock(&self) {}
 }
