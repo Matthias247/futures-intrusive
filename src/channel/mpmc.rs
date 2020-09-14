@@ -92,6 +92,12 @@ where
         }
     }
 
+    fn clear(&mut self) {
+        while !self.buffer.is_empty() {
+            self.buffer.pop();
+        }
+    }
+
     fn close(&mut self) -> CloseStatus {
         if self.is_closed {
             return CloseStatus::AlreadyClosed;
@@ -847,6 +853,10 @@ mod if_alloc {
                 // Close the channel, before last receiver gets destroyed
                 // TODO: We could potentially avoid this, if no sender is left
                 self.inner.channel.close();
+
+                // Now drop the content of the channel. This ensures that
+                // the content of the channel is dropped even if a sender is held.
+                self.inner.channel.inner.lock().clear();
             }
         }
 

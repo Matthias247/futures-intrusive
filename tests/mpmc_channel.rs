@@ -1302,6 +1302,42 @@ mod if_alloc {
     }
 
     #[test]
+    fn dropping_shared_channel_receivers_but_not_senders_drops_content() {
+        use std::sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        };
+        #[derive(Debug, Clone)]
+        struct Count(Arc<AtomicU64>);
+
+        impl Count {
+            fn new() -> Self {
+                Self(Arc::new(AtomicU64::new(0)))
+            }
+
+            fn load(&self) -> u64 {
+                self.0.load(Ordering::Acquire)
+            }
+        }
+
+        impl Drop for Count {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let count = Count::new();
+        assert_eq!(count.load(), 0);
+        let (sender, receiver) = channel::<Count>(10);
+        sender.try_send(count.clone()).unwrap();
+        sender.try_send(count.clone()).unwrap();
+        sender.try_send(count.clone()).unwrap();
+
+        drop(receiver);
+        assert_eq!(count.load(), 3);
+    }
+
+    #[test]
     fn dropping_shared_channel_senders_closes_channel() {
         let (waker, _) = new_count_waker();
         let cx = &mut Context::from_waker(&waker);
