@@ -9,6 +9,7 @@ use crate::{
 use core::{marker::PhantomData, pin::Pin};
 use futures_core::{
     future::Future,
+    ready,
     stream::{FusedStream, Stream},
     task::{Context, Poll, Waker},
 };
@@ -974,8 +975,9 @@ mod if_alloc {
             /// instead it yields `None` when it is terminated.
             pub fn into_stream(self) -> SharedStream<MutexType, T, A> {
                 SharedStream {
-                    receiver: Some(self),
+                    receiver: self,
                     future: None,
+                    is_terminated: false,
                 }
             }
         }
@@ -991,8 +993,23 @@ mod if_alloc {
             T: 'static,
             A: 'static + RingBuf<Item = T>,
         {
-            receiver: Option<GenericReceiver<MutexType, T, A>>,
+            receiver: GenericReceiver<MutexType, T, A>,
             future: Option<ChannelReceiveFuture<MutexType, T>>,
+            is_terminated: bool,
+        }
+
+        impl<MutexType, T, A> SharedStream<MutexType, T, A>
+        where
+            MutexType: RawMutex,
+            A: 'static + RingBuf<Item = T>,
+        {
+            /// Closes the channel.
+            /// All pending and future send attempts will fail.
+            /// Receive attempts will continue to succeed as long as there are items
+            /// stored inside the channel. Further attempts will fail.
+            pub fn close(&self) -> CloseStatus {
+                self.receiver.close()
+            }
         }
 
         impl<MutexType, T, A> Stream for SharedStream<MutexType, T, A>
@@ -1003,51 +1020,41 @@ mod if_alloc {
             type Item = T;
 
             fn poll_next(
-                self: Pin<&mut Self>,
+                mut self: Pin<&mut Self>,
                 cx: &mut Context,
             ) -> Poll<Option<Self::Item>> {
-                // It might be possible to use Pin::map_unchecked here instead of the two unsafe APIs.
-                // However this didn't seem to work for some borrow checker reasons
-
-                // Safety: The next operations are safe, because Pin promises us that
-                // the address of the wait queue entry inside ChannelReceiveFuture is stable,
-                // and we don't move any fields inside the future until it gets dropped.
-                let mut_self: &mut Self =
-                    unsafe { Pin::get_unchecked_mut(self) };
-                match mut_self.receiver.take() {
-                    Some(receiver) => {
-                        // Poll the next element.
-                        if mut_self.future.is_none() {
-                            mut_self.future.replace(receiver.receive());
-                        }
-                        let fut = mut_self.future.as_mut().unwrap();
-
-                        // Safety: We guarantee that the pinned future will not move until
-                        // it resolves by storing it as part of the pinned `Stream`
-                        let poll = unsafe {
-                            let pin_fut = Pin::new_unchecked(fut);
-                            pin_fut.poll(cx)
-                        };
-
-                        // Future was resolved, drop it.
-                        if poll.is_ready() {
-                            mut_self.future.take();
-
-                            // If the channel was terminated, we let the
-                            // receiver drop.
-                            if let Poll::Ready(None) = &poll {
-                                return poll;
-                            }
-                        }
-
-                        // The channel was not terminated, so we keep the receiver.
-                        mut_self.receiver.replace(receiver);
-
-                        poll
-                    }
-                    // Channel was terminated.
-                    None => Poll::Ready(None),
+                if self.is_terminated {
+                    return Poll::Ready(None);
                 }
+
+                // Safety: This is safe since this is a pinned projection
+                // that lives as long as the scope.
+                let mut pin_fut = unsafe {
+                    self.as_mut().map_unchecked_mut(|v| {
+                        // Poll the next element.
+                        if v.future.is_none() {
+                            v.future.replace(v.receiver.receive());
+                        }
+                        &mut v.future
+                    })
+                };
+
+                let poll = pin_fut.as_mut().as_pin_mut().unwrap().poll(cx);
+
+                // Future was resolved, drop it.
+                if poll.is_ready() {
+                    pin_fut.set(None);
+
+                    if let Poll::Ready(None) = &poll {
+                        // Safety: This is safe because `is_terminated` is never
+                        // considered pinned (i.e. not structuraly pinned).
+                        unsafe {
+                            self.get_unchecked_mut().is_terminated = true
+                        };
+                    }
+                }
+
+                poll
             }
         }
 
@@ -1057,7 +1064,7 @@ mod if_alloc {
             A: 'static + RingBuf<Item = T>,
         {
             fn is_terminated(&self) -> bool {
-                self.receiver.is_none()
+                self.is_terminated
             }
         }
 
