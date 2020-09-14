@@ -42,7 +42,9 @@ pub use self::state_broadcast::StateBroadcastChannel;
 
 mod mpmc;
 
-pub use self::mpmc::{GenericChannel, LocalChannel, LocalUnbufferedChannel};
+pub use self::mpmc::{
+    ChannelStream, GenericChannel, LocalChannel, LocalUnbufferedChannel,
+};
 
 #[cfg(feature = "alloc")]
 pub use self::mpmc::{Channel, UnbufferedChannel};
