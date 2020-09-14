@@ -32,5 +32,8 @@ pub use self::semaphore::{
 
 #[cfg(feature = "alloc")]
 pub use self::semaphore::{
-    Semaphore, SemaphoreAcquireFuture, SemaphoreReleaser,
+    GenericSharedSemaphore, GenericSharedSemaphoreAcquireFuture,
+    GenericSharedSemaphoreReleaser, Semaphore, SemaphoreAcquireFuture,
+    SemaphoreReleaser, SharedSemaphore, SharedSemaphoreAcquireFuture,
+    SharedSemaphoreReleaser,
 };
