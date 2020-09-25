@@ -14,6 +14,12 @@ pub trait Clock: Sync {
     fn now(&self) -> u64;
 }
 
+impl<T: Clock + ?Sized> Clock for &T {
+    fn now(&self) -> u64 {
+        T::now(self)
+    }
+}
+
 /// A [`Clock`] which can be set to arbitrary timestamps for testing purposes.
 ///
 /// It can be used in a test case as demonstrated in the following example:
