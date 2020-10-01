@@ -541,11 +541,9 @@ pub type LocalSemaphoreReleaser<'a> = GenericSemaphoreReleaser<'a, NoopLock>;
 pub type LocalSemaphoreAcquireFuture<'a> =
     GenericSemaphoreAcquireFuture<'a, NoopLock>;
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
-
-    use alloc::sync::Arc;
 
     // Export a thread-safe version using parking_lot::RawMutex
 
@@ -557,6 +555,16 @@ mod if_alloc {
     /// A [`GenericSemaphoreAcquireFuture`] for [`Semaphore`].
     pub type SemaphoreAcquireFuture<'a> =
         GenericSemaphoreAcquireFuture<'a, parking_lot::RawMutex>;
+}
+
+#[cfg(feature = "std")]
+pub use self::if_std::*;
+
+#[cfg(feature = "alloc")]
+mod if_alloc {
+    use super::*;
+
+    use alloc::sync::Arc;
 
     /// An RAII guard returned by the `acquire` and `try_acquire` methods.
     ///
@@ -814,14 +822,24 @@ mod if_alloc {
         }
     }
 
-    /// A [`GenericSharedSemaphore`] backed by [`parking_lot`].
-    pub type SharedSemaphore = GenericSharedSemaphore<parking_lot::RawMutex>;
-    /// A [`GenericSharedSemaphoreReleaser`] for [`SharedSemaphore`].
-    pub type SharedSemaphoreReleaser =
-        GenericSharedSemaphoreReleaser<parking_lot::RawMutex>;
-    /// A [`GenericSharedSemaphoreAcquireFuture`] for [`SharedSemaphore`].
-    pub type SharedSemaphoreAcquireFuture =
-        GenericSharedSemaphoreAcquireFuture<parking_lot::RawMutex>;
+    // Export parking_lot based shared semaphores in std mode
+    #[cfg(feature = "std")]
+    mod if_std {
+        use super::*;
+
+        /// A [`GenericSharedSemaphore`] backed by [`parking_lot`].
+        pub type SharedSemaphore =
+            GenericSharedSemaphore<parking_lot::RawMutex>;
+        /// A [`GenericSharedSemaphoreReleaser`] for [`SharedSemaphore`].
+        pub type SharedSemaphoreReleaser =
+            GenericSharedSemaphoreReleaser<parking_lot::RawMutex>;
+        /// A [`GenericSharedSemaphoreAcquireFuture`] for [`SharedSemaphore`].
+        pub type SharedSemaphoreAcquireFuture =
+            GenericSharedSemaphoreAcquireFuture<parking_lot::RawMutex>;
+    }
+
+    #[cfg(feature = "std")]
+    pub use self::if_std::*;
 }
 
 #[cfg(feature = "alloc")]

@@ -649,8 +649,8 @@ pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
 pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -670,6 +670,14 @@ mod if_alloc {
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
+}
+
+#[cfg(feature = "std")]
+pub use self::if_std::*;
+
+#[cfg(feature = "alloc")]
+mod if_alloc {
+    use super::*;
 
     /// Channel implementations where Sender and Receiver sides are cloneable
     /// and owned.
@@ -1069,8 +1077,8 @@ mod if_alloc {
         }
 
         // Export parking_lot based shared channels in std mode
-        #[cfg(feature = "alloc")]
-        mod if_alloc {
+        #[cfg(feature = "std")]
+        mod if_std {
             use super::*;
 
             use crate::buffer::GrowingHeapBuf;
@@ -1126,8 +1134,8 @@ mod if_alloc {
             }
         }
 
-        #[cfg(feature = "alloc")]
-        pub use self::if_alloc::*;
+        #[cfg(feature = "std")]
+        pub use self::if_std::*;
     }
 }
 

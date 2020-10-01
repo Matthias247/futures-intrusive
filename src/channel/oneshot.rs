@@ -232,15 +232,22 @@ impl<MutexType: RawMutex, T> ChannelReceiveAccess<T>
 /// A [`GenericOneshotChannel`] which is not thread-safe.
 pub type LocalOneshotChannel<T> = GenericOneshotChannel<NoopLock, T>;
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
-
     // Export a thread-safe version using parking_lot::RawMutex
 
     /// A [`GenericOneshotChannel`] implementation backed by [`parking_lot`].
     pub type OneshotChannel<T> =
         GenericOneshotChannel<parking_lot::RawMutex, T>;
+}
+
+#[cfg(feature = "std")]
+pub use self::if_std::*;
+
+#[cfg(feature = "alloc")]
+mod if_alloc {
+    use super::*;
 
     pub mod shared {
         use super::*;
@@ -411,9 +418,9 @@ mod if_alloc {
             }
         }
 
-        // Export parking_lot based shared channels in alloc mode
-        #[cfg(feature = "alloc")]
-        mod if_alloc {
+        // Export parking_lot based shared channels in std mode
+        #[cfg(feature = "std")]
+        mod if_std {
             use super::*;
 
             /// A [`GenericOneshotSender`] implementation backed by [`parking_lot`].
@@ -434,8 +441,8 @@ mod if_alloc {
             }
         }
 
-        #[cfg(feature = "alloc")]
-        pub use self::if_alloc::*;
+        #[cfg(feature = "std")]
+        pub use self::if_std::*;
     }
 }
 

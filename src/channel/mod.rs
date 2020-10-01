@@ -19,7 +19,7 @@ mod oneshot;
 
 pub use self::oneshot::{GenericOneshotChannel, LocalOneshotChannel};
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::oneshot::OneshotChannel;
 
 mod oneshot_broadcast;
@@ -28,7 +28,7 @@ pub use self::oneshot_broadcast::{
     GenericOneshotBroadcastChannel, LocalOneshotBroadcastChannel,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::oneshot_broadcast::OneshotBroadcastChannel;
 
 mod state_broadcast;
@@ -37,7 +37,7 @@ pub use state_broadcast::{
     StateReceiveFuture,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::state_broadcast::StateBroadcastChannel;
 
 mod mpmc;
@@ -46,7 +46,7 @@ pub use self::mpmc::{
     ChannelStream, GenericChannel, LocalChannel, LocalUnbufferedChannel,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::mpmc::{Channel, UnbufferedChannel};
 
 #[cfg(feature = "alloc")]
