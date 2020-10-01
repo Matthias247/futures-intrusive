@@ -394,13 +394,6 @@ mod if_alloc {
         ///
         /// As soon es either the senders or all receivers is closed, the channel
         /// itself will be closed.
-        ///
-        /// Example for creating a channel to transmit an integer value:
-        ///
-        /// ```
-        /// # use futures_intrusive::channel::shared::oneshot_broadcast_channel;
-        /// let (sender, receiver) = oneshot_broadcast_channel::<i32>();
-        /// ```
         pub fn generic_oneshot_broadcast_channel<MutexType, T>() -> (
             GenericOneshotBroadcastSender<MutexType, T>,
             GenericOneshotBroadcastReceiver<MutexType, T>,
@@ -469,6 +462,13 @@ mod if_alloc {
             /// Creates a new oneshot broadcast channel.
             ///
             /// Refer to [`generic_oneshot_broadcast_channel`] for details.
+            ///
+            /// Example for creating a channel to transmit an integer value:
+            ///
+            /// ```
+            /// # use futures_intrusive::channel::shared::oneshot_broadcast_channel;
+            /// let (sender, receiver) = oneshot_broadcast_channel::<i32>();
+            /// ```
             pub fn oneshot_broadcast_channel<T>(
             ) -> (OneshotBroadcastSender<T>, OneshotBroadcastReceiver<T>)
             where

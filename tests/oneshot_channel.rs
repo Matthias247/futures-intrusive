@@ -254,8 +254,8 @@ macro_rules! gen_oneshot_tests {
 
 gen_oneshot_tests!(local_oneshot_channel_tests, LocalOneshotChannel);
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
     use futures_intrusive::channel::shared::oneshot_channel;
     use futures_intrusive::channel::OneshotChannel;

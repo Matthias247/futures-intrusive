@@ -1064,8 +1064,8 @@ gen_mpmc_tests!(
     LocalUnbufferedChannel
 );
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
     use futures_intrusive::channel::{
         shared::channel, shared::ChannelReceiveFuture,

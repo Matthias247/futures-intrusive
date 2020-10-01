@@ -9,7 +9,6 @@ use crate::{
 use core::{marker::PhantomData, pin::Pin};
 use futures_core::{
     future::Future,
-    ready,
     stream::{FusedStream, Stream},
     task::{Context, Poll, Waker},
 };
@@ -879,11 +878,6 @@ mod if_alloc {
         /// itself will be closed.
         ///
         /// The channel can buffer up to `capacity` items internally.
-        ///
-        /// ```
-        /// # use futures_intrusive::channel::shared::channel;
-        /// let (sender, receiver) = channel::<i32>(4);
-        /// ```
         pub fn generic_channel<MutexType, T, A>(
             capacity: usize,
         ) -> (
@@ -1106,6 +1100,11 @@ mod if_alloc {
             /// the given limit. Refer to [`generic_channel`] and [`GrowingHeapBuf`] for more information.
             ///
             /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
+            ///
+            /// ```
+            /// # use futures_intrusive::channel::shared::channel;
+            /// let (sender, receiver) = channel::<i32>(4);
+            /// ```
             pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>)
             where
                 T: Send,

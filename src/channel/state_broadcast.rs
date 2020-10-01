@@ -697,13 +697,6 @@ mod if_alloc {
         ///
         /// As soon es either the senders or receivers is closed, the channel
         /// itself will be closed.
-        ///
-        /// Example for creating a channel to transmit an integer value:
-        ///
-        /// ```
-        /// # use futures_intrusive::channel::shared::state_broadcast_channel;
-        /// let (sender, receiver) = state_broadcast_channel::<i32>();
-        /// ```
         pub fn generic_state_broadcast_channel<MutexType, T>() -> (
             GenericStateSender<MutexType, T>,
             GenericStateReceiver<MutexType, T>,
@@ -795,6 +788,13 @@ mod if_alloc {
             /// Creates a new state broadcast channel.
             ///
             /// Refer to [`generic_state_broadcast_channel`] for details.
+            ///
+            /// Example for creating a channel to transmit an integer value:
+            ///
+            /// ```
+            /// # use futures_intrusive::channel::shared::state_broadcast_channel;
+            /// let (sender, receiver) = state_broadcast_channel::<i32>();
+            /// ```
             pub fn state_broadcast_channel<T>(
             ) -> (StateSender<T>, StateReceiver<T>)
             where
