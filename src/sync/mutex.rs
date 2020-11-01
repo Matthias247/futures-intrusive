@@ -310,6 +310,13 @@ impl<MutexType: RawMutex, T> DerefMut for GenericMutexGuard<'_, MutexType, T> {
     }
 }
 
+// Safety: GenericMutexGuard may only be used across threads if the underlying
+// type is Sync.
+unsafe impl<MutexType: RawMutex, T: Sync> Sync
+    for GenericMutexGuard<'_, MutexType, T>
+{
+}
+
 /// A future which resolves when the target mutex has been successfully acquired.
 #[must_use = "futures do nothing unless polled"]
 pub struct GenericMutexLockFuture<'a, MutexType: RawMutex, T: 'a> {
