@@ -24,7 +24,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-futures-intrusive = "^0.3"
+futures-intrusive = "^0.4"
 ```
 
 In order to use the crate in a `no-std` environment, it needs to be compiled
@@ -32,7 +32,7 @@ without default features:
 
 ```toml
 [dependencies]
-futures-intrusive = { version = "^0.3", default-features = false }
+futures-intrusive = { version = "^0.4", default-features = false }
 ```
 
 The crate defines a feature `alloc`, which can be used in order to re-enable
