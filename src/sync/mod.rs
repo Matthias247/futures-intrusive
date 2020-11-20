@@ -10,7 +10,7 @@ pub use self::manual_reset_event::{
     LocalWaitForEventFuture,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::manual_reset_event::{ManualResetEvent, WaitForEventFuture};
 
 mod mutex;
@@ -20,7 +20,7 @@ pub use self::mutex::{
     LocalMutexGuard, LocalMutexLockFuture,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::mutex::{Mutex, MutexGuard, MutexLockFuture};
 
 mod semaphore;
@@ -33,7 +33,11 @@ pub use self::semaphore::{
 #[cfg(feature = "alloc")]
 pub use self::semaphore::{
     GenericSharedSemaphore, GenericSharedSemaphoreAcquireFuture,
-    GenericSharedSemaphoreReleaser, Semaphore, SemaphoreAcquireFuture,
-    SemaphoreReleaser, SharedSemaphore, SharedSemaphoreAcquireFuture,
-    SharedSemaphoreReleaser,
+    GenericSharedSemaphoreReleaser,
+};
+
+#[cfg(feature = "std")]
+pub use self::semaphore::{
+    Semaphore, SemaphoreAcquireFuture, SemaphoreReleaser, SharedSemaphore,
+    SharedSemaphoreAcquireFuture, SharedSemaphoreReleaser,
 };

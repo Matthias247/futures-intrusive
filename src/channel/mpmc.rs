@@ -9,7 +9,6 @@ use crate::{
 use core::{marker::PhantomData, pin::Pin};
 use futures_core::{
     future::Future,
-    ready,
     stream::{FusedStream, Stream},
     task::{Context, Poll, Waker},
 };
@@ -649,8 +648,8 @@ pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
 pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
 
     // Export a thread-safe version using parking_lot::RawMutex
@@ -670,6 +669,14 @@ mod if_alloc {
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
     pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
+}
+
+#[cfg(feature = "std")]
+pub use self::if_std::*;
+
+#[cfg(feature = "alloc")]
+mod if_alloc {
+    use super::*;
 
     /// Channel implementations where Sender and Receiver sides are cloneable
     /// and owned.
@@ -871,11 +878,6 @@ mod if_alloc {
         /// itself will be closed.
         ///
         /// The channel can buffer up to `capacity` items internally.
-        ///
-        /// ```
-        /// # use futures_intrusive::channel::shared::channel;
-        /// let (sender, receiver) = channel::<i32>(4);
-        /// ```
         pub fn generic_channel<MutexType, T, A>(
             capacity: usize,
         ) -> (
@@ -1069,8 +1071,8 @@ mod if_alloc {
         }
 
         // Export parking_lot based shared channels in std mode
-        #[cfg(feature = "alloc")]
-        mod if_alloc {
+        #[cfg(feature = "std")]
+        mod if_std {
             use super::*;
 
             use crate::buffer::GrowingHeapBuf;
@@ -1098,6 +1100,11 @@ mod if_alloc {
             /// the given limit. Refer to [`generic_channel`] and [`GrowingHeapBuf`] for more information.
             ///
             /// [`GrowingHeapBuf`]: ../../buffer/struct.GrowingHeapBuf.html
+            ///
+            /// ```
+            /// # use futures_intrusive::channel::shared::channel;
+            /// let (sender, receiver) = channel::<i32>(4);
+            /// ```
             pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>)
             where
                 T: Send,
@@ -1126,8 +1133,8 @@ mod if_alloc {
             }
         }
 
-        #[cfg(feature = "alloc")]
-        pub use self::if_alloc::*;
+        #[cfg(feature = "std")]
+        pub use self::if_std::*;
     }
 }
 

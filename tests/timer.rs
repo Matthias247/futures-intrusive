@@ -232,8 +232,8 @@ macro_rules! gen_timer_tests {
 
 gen_timer_tests!(local_timer_service_tests, LocalTimerService, LocalTimer);
 
-#[cfg(feature = "alloc")]
-mod if_alloc {
+#[cfg(feature = "std")]
+mod if_std {
     use super::*;
     use futures_intrusive::timer::{Timer, TimerService};
 

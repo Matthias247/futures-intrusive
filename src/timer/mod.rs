@@ -18,5 +18,5 @@ pub use self::timer::{
     Timer, TimerFuture,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub use self::timer::TimerService;

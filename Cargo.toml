@@ -14,8 +14,8 @@ Futures based on intrusive data structures - for std and no-std environments.
 name = "futures_intrusive"
 
 [features]
-alloc = ["futures-core/alloc", "parking_lot"]
-std = ["alloc"]
+alloc = ["futures-core/alloc"]
+std = ["alloc", "parking_lot"]
 default = ["std"]
 
 [dependencies]
