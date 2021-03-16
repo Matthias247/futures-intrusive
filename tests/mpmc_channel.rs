@@ -1135,6 +1135,13 @@ mod if_std {
         is_send(&send_fut);
     }
 
+    #[test]
+    fn shared_channel_stream_is_sync() {
+        let (_, receiver) = channel::<i32>(1);
+        let stream = receiver.into_stream();
+        is_sync(&stream);
+    }
+
     // Check if SharedChannel can be used in traits
     pub trait StreamTrait {
         type Output;

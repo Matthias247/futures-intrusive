@@ -1070,6 +1070,16 @@ mod if_alloc {
             }
         }
 
+        // The stream is thread-safe as long as a thread-safe mutex is used
+        // and the inner future cannot be accessed by a shared reference.
+        unsafe impl<MutexType: RawMutex + Sync, T: Send, A> Sync
+            for SharedStream<MutexType, T, A>
+        where
+            A: RingBuf<Item = T>,
+        {
+        }
+
+
         // Export parking_lot based shared channels in std mode
         #[cfg(feature = "std")]
         mod if_std {
