@@ -353,7 +353,7 @@ where
 /// concurrent tasks.
 ///
 /// `A` represents the backing buffer for a Channel. E.g. a channel which
-/// can buffer up to 4 u32 values can be created via:
+/// can buffer up to 4 `i32` values can be created via:
 ///
 /// ```
 /// # use futures_intrusive::channel::LocalChannel;
