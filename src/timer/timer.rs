@@ -74,15 +74,15 @@ impl Ord for TimerQueueEntry {
 }
 
 /// Internal state of the timer
-struct TimerState {
+struct TimerState<C> {
     /// The clock which is utilized
-    clock: &'static dyn Clock,
+    clock: C,
     /// The heap of waiters, which are waiting for their timer to expire
     waiters: PairingHeap<TimerQueueEntry>,
 }
 
-impl TimerState {
-    fn new(clock: &'static dyn Clock) -> TimerState {
+impl<C: Clock> TimerState<C> {
+    fn new(clock: C) -> TimerState<C> {
         TimerState {
             clock,
             waiters: PairingHeap::new(),
@@ -229,28 +229,30 @@ pub trait Timer {
 /// The timer can either be running on a separate timer thread (in case a
 /// thread-safe timer type is utilize), or it can be integrated into an executor
 /// in order to minimize context switches.
-pub struct GenericTimerService<MutexType: RawMutex> {
-    inner: Mutex<MutexType, TimerState>,
+pub struct GenericTimerService<MutexType: RawMutex, C: Clock> {
+    inner: Mutex<MutexType, TimerState<C>>,
 }
 
 // The timer can be sent to other threads as long as it's not borrowed
-unsafe impl<MutexType: RawMutex + Send> Send
-    for GenericTimerService<MutexType>
+unsafe impl<MutexType: RawMutex + Send, C: Clock> Send
+    for GenericTimerService<MutexType, C>
 {
 }
 // The timer is thread-safe as long as it uses a thread-safe mutex
-unsafe impl<MutexType: RawMutex + Sync> Sync
-    for GenericTimerService<MutexType>
+unsafe impl<MutexType: RawMutex + Sync, C: Clock> Sync
+    for GenericTimerService<MutexType, C>
 {
 }
 
-impl<MutexType: RawMutex> core::fmt::Debug for GenericTimerService<MutexType> {
+impl<MutexType: RawMutex, C: Clock> core::fmt::Debug
+    for GenericTimerService<MutexType, C>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TimerService").finish()
     }
 }
 
-impl<MutexType: RawMutex> GenericTimerService<MutexType> {
+impl<MutexType: RawMutex, C: Clock> GenericTimerService<MutexType, C> {
     /// Creates a new Timer in the given state.
     ///
     /// The Timer will query the provided [`Clock`] instance for the current
@@ -260,8 +262,8 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
     /// [`StdClock`](super::StdClock) can be utilized.
     /// In order to simulate time for test purposes,
     /// [`MockClock`](super::MockClock) can be utilized.
-    pub fn new(clock: &'static dyn Clock) -> GenericTimerService<MutexType> {
-        GenericTimerService::<MutexType> {
+    pub fn new(clock: C) -> GenericTimerService<MutexType, C> {
+        GenericTimerService {
             inner: Mutex::new(TimerState::new(clock)),
         }
     }
@@ -293,7 +295,9 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
     }
 }
 
-impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
+impl<MutexType: RawMutex, C: Clock> LocalTimer
+    for GenericTimerService<MutexType, C>
+{
     /// Returns a future that gets fulfilled after the given [`Duration`]
     fn delay(&self, delay: Duration) -> LocalTimerFuture {
         let deadline = self.deadline_from_now(delay);
@@ -310,7 +314,7 @@ impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
     }
 }
 
-impl<MutexType: RawMutex> Timer for GenericTimerService<MutexType>
+impl<MutexType: RawMutex, C: Clock> Timer for GenericTimerService<MutexType, C>
 where
     MutexType: Sync,
 {
@@ -332,7 +336,9 @@ where
     }
 }
 
-impl<MutexType: RawMutex> TimerAccess for GenericTimerService<MutexType> {
+impl<MutexType: RawMutex, C: Clock> TimerAccess
+    for GenericTimerService<MutexType, C>
+{
     unsafe fn try_wait(
         &self,
         wait_node: &mut HeapNode<TimerQueueEntry>,
@@ -444,7 +450,7 @@ impl<'a> FusedFuture for TimerFuture<'a> {
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericTimerService`] implementation which is not thread-safe.
-pub type LocalTimerService = GenericTimerService<NoopLock>;
+pub type LocalTimerService<C: Clock> = GenericTimerService<NoopLock, C>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -453,7 +459,8 @@ mod if_std {
     // Export a thread-safe version using parking_lot::RawMutex
 
     /// A [`GenericTimerService`] implementation backed by [`parking_lot`].
-    pub type TimerService = GenericTimerService<parking_lot::RawMutex>;
+    pub type TimerService<C: Clock> =
+        GenericTimerService<parking_lot::RawMutex, C>;
 }
 
 #[cfg(feature = "std")]
