@@ -215,6 +215,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs, missing_debug_implementations)]
 #![deny(bare_trait_objects)]
+#![cfg_attr(feature = "nightly", feature(const_fn))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

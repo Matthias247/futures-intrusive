@@ -56,7 +56,7 @@ pub struct LinkedList<T> {
 
 impl<T> LinkedList<T> {
     /// Creates an empty linked list
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         LinkedList::<T> {
             head: None,
             tail: None,

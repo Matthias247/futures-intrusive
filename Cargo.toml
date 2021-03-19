@@ -16,6 +16,7 @@ name = "futures_intrusive"
 [features]
 alloc = ["futures-core/alloc"]
 std = ["alloc", "parking_lot"]
+nightly = ["lock_api/nightly"]
 default = ["std"]
 
 [dependencies]
