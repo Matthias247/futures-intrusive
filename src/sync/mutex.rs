@@ -58,7 +58,7 @@ struct MutexState {
 }
 
 impl MutexState {
-    fn new(is_fair: bool) -> Self {
+    const fn new(is_fair: bool) -> Self {
         MutexState {
             is_fair,
             is_locked: false,
@@ -438,6 +438,22 @@ impl<MutexType: RawMutex, T> GenericMutex<MutexType, T> {
     /// Other waiters must wait until either this locking attempt completes, and
     /// the `Mutex` gets unlocked again, or until the `MutexLockFuture` which
     /// tried to gain the lock is dropped.
+    #[cfg(feature = "nightly")]
+    pub const fn new(value: T, is_fair: bool) -> GenericMutex<MutexType, T> {
+        GenericMutex::<MutexType, T> {
+            value: UnsafeCell::new(value),
+            state: LockApiMutex::new(MutexState::new(is_fair)),
+        }
+    }
+    /// Creates a new futures-aware mutex.
+    ///
+    /// `is_fair` defines whether the `Mutex` should behave be fair regarding the
+    /// order of waiters. A fair `Mutex` will only allow the first waiter which
+    /// tried to lock but failed to lock the `Mutex` once it's available again.
+    /// Other waiters must wait until either this locking attempt completes, and
+    /// the `Mutex` gets unlocked again, or until the `MutexLockFuture` which
+    /// tried to gain the lock is dropped.
+    #[cfg(not(feature = "nightly"))]
     pub fn new(value: T, is_fair: bool) -> GenericMutex<MutexType, T> {
         GenericMutex::<MutexType, T> {
             value: UnsafeCell::new(value),
