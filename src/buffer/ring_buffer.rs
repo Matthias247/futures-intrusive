@@ -1,5 +1,3 @@
-use super::RealArray;
-use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 
 /// A Ring Buffer of items
@@ -44,24 +42,17 @@ pub trait RingBuf {
 /// ```
 /// use futures_intrusive::buffer::{ArrayBuf, RingBuf};
 ///
-/// type Buffer5 = ArrayBuf<i32, [i32; 5]>;
+/// type Buffer5 = ArrayBuf<i32, 5>;
 /// let buffer = Buffer5::new();
 /// ```
-pub struct ArrayBuf<T, A>
-where
-    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
-{
-    buffer: MaybeUninit<A>,
+pub struct ArrayBuf<T, const N: usize> {
+    buffer: MaybeUninit<[T; N]>,
     size: usize,
     recv_idx: usize,
     send_idx: usize,
-    _phantom: PhantomData<T>,
 }
 
-impl<T, A> core::fmt::Debug for ArrayBuf<T, A>
-where
-    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
-{
+impl<T, const N: usize> core::fmt::Debug for ArrayBuf<T, N> {
     fn fmt(
         &self,
         f: &mut core::fmt::Formatter,
@@ -73,10 +64,7 @@ where
     }
 }
 
-impl<T, A> ArrayBuf<T, A>
-where
-    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
-{
+impl<T, const N: usize> ArrayBuf<T, N> {
     fn next_idx(&mut self, last_idx: usize) -> usize {
         if last_idx + 1 == self.capacity() {
             return 0;
@@ -85,10 +73,7 @@ where
     }
 }
 
-impl<T, A> RingBuf for ArrayBuf<T, A>
-where
-    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
-{
+impl<T, const N: usize> RingBuf for ArrayBuf<T, N> {
     type Item = T;
 
     fn new() -> Self {
@@ -97,7 +82,6 @@ where
             send_idx: 0,
             recv_idx: 0,
             size: 0,
-            _phantom: PhantomData,
         }
     }
 
@@ -109,7 +93,7 @@ where
 
     #[inline]
     fn capacity(&self) -> usize {
-        A::LEN
+        N
     }
 
     #[inline]
@@ -150,10 +134,7 @@ where
     }
 }
 
-impl<T, A> Drop for ArrayBuf<T, A>
-where
-    A: core::convert::AsMut<[T]> + core::convert::AsRef<[T]> + RealArray<T>,
-{
+impl<T, const N: usize> Drop for ArrayBuf<T, N> {
     fn drop(&mut self) {
         // Drop all elements which are still stored inside the buffer
         while self.size > 0 {
@@ -361,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_array_ring_buf() {
-        let buf = ArrayBuf::<u32, [u32; 5]>::new();
+        let buf = ArrayBuf::<u32, 5>::new();
         test_ring_buf(buf);
     }
 

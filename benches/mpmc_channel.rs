@@ -256,7 +256,7 @@ fn intrusive_local_chan_bounded_variable_tx_single_thread(producers: usize) {
     let elems_per_producer = ELEMS_TO_SEND / producers;
 
     block_on(async {
-        let rx = LocalChannel::<i32, [i32; CHANNEL_BUFFER_SIZE]>::new();
+        let rx = LocalChannel::<i32, CHANNEL_BUFFER_SIZE>::new();
         let produce_done = join_all((0..producers).into_iter().map(|_| {
             Box::pin(async {
                 for _i in 0..elems_per_producer {

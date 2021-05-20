@@ -152,7 +152,7 @@ macro_rules! gen_mpmc_tests {
         mod $mod_name {
             use super::*;
 
-            type ChannelType = $channel_type<i32, [i32; 3]>;
+            type ChannelType = $channel_type<i32, 3>;
             type UnbufferedChannelType = $unbuffered_channel_type<i32>;
 
             fn assert_send(
@@ -707,8 +707,7 @@ macro_rules! gen_mpmc_tests {
                 let elem3 = CountedElem::new(3, drop_counter.clone());
 
                 {
-                    let channel =
-                        $channel_type::<CountedElem, [CountedElem; 3]>::new();
+                    let channel = $channel_type::<CountedElem, 3>::new();
 
                     // Fill the channel
                     let fut1 = channel.send(elem1.clone());
@@ -740,8 +739,7 @@ macro_rules! gen_mpmc_tests {
                 drop_counter.clear();
 
                 {
-                    let channel =
-                        $channel_type::<CountedElem, [CountedElem; 3]>::new();
+                    let channel = $channel_type::<CountedElem, 3>::new();
 
                     // Fill the channel
                     let fut1 = channel.send(elem1.clone());
@@ -1103,7 +1101,7 @@ mod if_std {
 
     #[test]
     fn channel_futures_are_send() {
-        let channel = Channel::<i32, [i32; 3]>::new();
+        let channel = Channel::<i32, 3>::new();
         is_sync(&channel);
         {
             let recv_fut = channel.receive();
