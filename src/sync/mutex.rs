@@ -72,7 +72,7 @@ impl MutexState {
     /// the wait queue
     fn return_last_waiter(&mut self) -> Option<Waker> {
         let last_waiter = if self.is_fair {
-            self.waiters.peek_last()
+            self.waiters.peek_last_mut()
         } else {
             self.waiters.remove_last()
         };
