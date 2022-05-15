@@ -71,7 +71,7 @@ impl SemaphoreState {
         let mut available = self.permits;
 
         loop {
-            match self.waiters.peek_last() {
+            match self.waiters.peek_last_mut() {
                 None => return,
                 Some(last_waiter) => {
                     // Check if enough permits are available for this waiter.

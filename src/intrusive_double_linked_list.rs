@@ -81,12 +81,29 @@ impl<T> LinkedList<T> {
         }
     }
 
-    /// Returns the first node in the linked list without removing it from the list
+    /// Returns a reference to the first node in the linked list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
     /// The returned pointer is only guaranteed to be valid as long as the list
     /// is not mutated
-    pub fn peek_first(&self) -> Option<&mut ListNode<T>> {
+    pub fn peek_first(&self) -> Option<&ListNode<T>> {
+        // Safety: When the node was inserted it was promised that it is alive
+        // until it gets removed from the list.
+        // The returned node has a pointer which constrains it to the lifetime
+        // of the list. This is ok, since the Node is supposed to outlive
+        // its insertion in the list.
+        unsafe {
+            self.head
+                .map(|node| &*(node.as_ptr() as *const ListNode<T>))
+        }
+    }
+
+    /// Returns a mutable reference to the first node in the linked list
+    /// The function is only safe as long as valid pointers are stored inside
+    /// the linked list.
+    /// The returned pointer is only guaranteed to be valid as long as the list
+    /// is not mutated
+    pub fn peek_first_mut(&mut self) -> Option<&mut ListNode<T>> {
         // Safety: When the node was inserted it was promised that it is alive
         // until it gets removed from the list.
         // The returned node has a pointer which constrains it to the lifetime
@@ -98,12 +115,29 @@ impl<T> LinkedList<T> {
         }
     }
 
-    /// Returns the last node in the linked list without removing it from the list
+    /// Returns a reference to the last node in the linked list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
     /// The returned pointer is only guaranteed to be valid as long as the list
     /// is not mutated
-    pub fn peek_last(&self) -> Option<&mut ListNode<T>> {
+    pub fn peek_last(&self) -> Option<&ListNode<T>> {
+        // Safety: When the node was inserted it was promised that it is alive
+        // until it gets removed from the list.
+        // The returned node has a pointer which constrains it to the lifetime
+        // of the list. This is ok, since the Node is supposed to outlive
+        // its insertion in the list.
+        unsafe {
+            self.tail
+                .map(|node| &*(node.as_ptr() as *const ListNode<T>))
+        }
+    }
+
+    /// Returns a mutable reference to the last node in the linked list
+    /// The function is only safe as long as valid pointers are stored inside
+    /// the linked list.
+    /// The returned pointer is only guaranteed to be valid as long as the list
+    /// is not mutated
+    pub fn peek_last_mut(&mut self) -> Option<&mut ListNode<T>> {
         // Safety: When the node was inserted it was promised that it is alive
         // until it gets removed from the list.
         // The returned node has a pointer which constrains it to the lifetime
