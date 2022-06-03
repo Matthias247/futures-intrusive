@@ -3,7 +3,7 @@
 
 use crate::{
     intrusive_double_linked_list::{LinkedList, ListNode},
-    utils::update_waker_ref,
+    utils::update_option_waker_ref,
     NoopLock,
 };
 use core::{
@@ -160,7 +160,7 @@ impl MutexState {
                     // The task needs to wait until it gets notified in order to
                     // maintain the ordering. However the caller might have
                     // passed a different `Waker`. In this case we need to update it.
-                    update_waker_ref(&mut wait_node.task, cx);
+                    update_option_waker_ref(&mut wait_node.task, cx);
                     Poll::Pending
                 } else {
                     // For throughput improvement purposes, grab the lock immediately
@@ -177,7 +177,7 @@ impl MutexState {
                     } else {
                         // The caller might have passed a different `Waker`.
                         // In this case we need to update it.
-                        update_waker_ref(&mut wait_node.task, cx);
+                        update_option_waker_ref(&mut wait_node.task, cx);
                         Poll::Pending
                     }
                 }

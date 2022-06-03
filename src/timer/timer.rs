@@ -3,7 +3,7 @@
 use super::clock::Clock;
 use crate::{
     intrusive_pairing_heap::{HeapNode, PairingHeap},
-    utils::update_waker_ref,
+    utils::update_option_waker_ref,
     NoopLock,
 };
 use core::{pin::Pin, time::Duration};
@@ -117,7 +117,7 @@ impl TimerState {
                 // Expired when the timer expired, it can't be expired here yet.
                 // However the caller might have passed a different `Waker`.
                 // In this case we need to update it.
-                update_waker_ref(&mut wait_node.task, cx);
+                update_option_waker_ref(&mut wait_node.task, cx);
                 Poll::Pending
             }
             PollState::Expired => Poll::Ready(()),

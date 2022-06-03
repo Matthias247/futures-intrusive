@@ -15,13 +15,15 @@ name = "futures_intrusive"
 
 [features]
 alloc = ["futures-core/alloc"]
-std = ["alloc", "parking_lot"]
+std = ["alloc", "parking_lot", "pin-list/std"]
 default = ["std"]
 
 [dependencies]
 futures-core = { version = "^0.3", default-features = false }
 lock_api = "0.4.1"
 parking_lot = { version = "0.12.0", optional = true }
+pin-list = "0.1.0"
+pin-project-lite = "0.2.9"
 
 [dev-dependencies]
 futures = { version = "0.3.0", default-features = true, features=["async-await"] }
