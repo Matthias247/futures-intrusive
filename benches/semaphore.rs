@@ -58,7 +58,7 @@ async fn acquire_intrusive_semaphore(
 async fn acquire_tokio_semaphore(
     sem: &TokioSemaphore,
 ) -> TokioSemaphorePermit<'_> {
-    sem.acquire().await
+    sem.acquire().await.unwrap()
 }
 
 macro_rules! run_with_semaphore {

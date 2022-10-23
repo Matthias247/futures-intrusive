@@ -74,7 +74,7 @@ fn tokiochan_bounded_variable_tx(producers: usize) {
     let (tx, mut rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER_SIZE);
 
     for _i in 0..producers {
-        let mut tx = tx.clone();
+        let tx = tx.clone();
         std::thread::spawn(move || {
             block_on(async {
                 for _i in 0..elems_per_producer {
@@ -178,7 +178,7 @@ fn tokiochan_bounded_variable_tx_single_thread(producers: usize) {
     block_on(async {
         let (tx, mut rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER_SIZE);
         let produce_done = join_all((0..producers).into_iter().map(|_| {
-            let mut tx = tx.clone();
+            let tx = tx.clone();
             async move {
                 for _i in 0..elems_per_producer {
                     tx.send(4).await.unwrap();
