@@ -220,7 +220,7 @@
 extern crate alloc;
 
 mod noop_lock;
-pub use noop_lock::NoopLock;
+use noop_lock::NoopLock;
 
 pub mod buffer;
 
