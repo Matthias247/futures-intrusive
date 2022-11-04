@@ -3,7 +3,7 @@
 use crate::intrusive_double_linked_list::{LinkedList, ListNode};
 use crate::{
     buffer::{ArrayBuf, RingBuf},
-    utils::update_waker_ref,
+    utils::update_option_waker_ref,
     NoopLock,
 };
 use core::{marker::PhantomData, pin::Pin};
@@ -182,7 +182,7 @@ where
                 // to unregistered there can't be space available in the channel.
                 // However the caller might have passed a different `Waker`.
                 // In this case we need to update it.
-                update_waker_ref(&mut wait_node.task, cx);
+                update_option_waker_ref(&mut wait_node.task, cx);
                 (Poll::Pending, None, None)
             }
             SendPollState::SendComplete => {
@@ -289,7 +289,7 @@ where
                 // to unregistered there can't be any value in the channel in
                 // this state. However the caller might have passed a different `Waker`.
                 // In this case we need to update it.
-                update_waker_ref(&mut wait_node.task, cx);
+                update_option_waker_ref(&mut wait_node.task, cx);
                 Poll::Pending
             }
         }
