@@ -357,7 +357,7 @@ where
 ///
 /// ```
 /// # use futures_intrusive::channel::LocalChannel;
-/// let channel: LocalChannel<i32, [i32; 4]> = LocalChannel::new();
+/// let channel: LocalChannel<i32, 4> = LocalChannel::new();
 /// ```
 ///
 /// Tasks can receive values from the channel through the `receive` method.
@@ -643,10 +643,11 @@ where
 // Export a non thread-safe version using NoopLock
 
 /// A [`GenericChannel`] implementation which is not thread-safe.
-pub type LocalChannel<T, A> = GenericChannel<NoopLock, T, ArrayBuf<T, A>>;
+pub type LocalChannel<T, const N: usize> =
+    GenericChannel<NoopLock, T, ArrayBuf<T, N>>;
 
 /// An unbuffered [`GenericChannel`] implementation which is not thread-safe.
-pub type LocalUnbufferedChannel<T> = LocalChannel<T, [T; 0]>;
+pub type LocalUnbufferedChannel<T> = LocalChannel<T, 0>;
 
 #[cfg(feature = "std")]
 mod if_std {
@@ -664,11 +665,11 @@ mod if_std {
     // `with_capacity()` is meaningful.
 
     /// A [`GenericChannel`] implementation backed by [`parking_lot`].
-    pub type Channel<T, A> =
-        GenericChannel<parking_lot::RawMutex, T, ArrayBuf<T, A>>;
+    pub type Channel<T, const N: usize> =
+        GenericChannel<parking_lot::RawMutex, T, ArrayBuf<T, N>>;
 
     /// An unbuffered [`GenericChannel`] implementation backed by [`parking_lot`].
-    pub type UnbufferedChannel<T> = Channel<T, [T; 0]>;
+    pub type UnbufferedChannel<T> = Channel<T, 0>;
 }
 
 #[cfg(feature = "std")]
