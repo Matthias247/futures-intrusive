@@ -283,6 +283,11 @@ impl SemaphoreState {
                 // Safety: Due to the state, we know that the node must be part
                 // of the waiter list
                 unsafe { self.force_remove_waiter(wait_node) };
+                // There might be another task which is ready to run,
+                // but couldn't, since it was blocked behind the fair waiter.
+                if self.is_fair {
+                    self.wakeup_waiters();
+                }
                 wait_node.state = PollState::Done;
             }
             PollState::New | PollState::Done => {}
