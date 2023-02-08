@@ -26,8 +26,8 @@ type Fork = LocalMutex<()>;
 
 // Some setup for the asynchronously awaitable timer
 lazy_static! {
-    static ref STD_CLOCK: StdClock = StdClock::new();
-    static ref TIMER_SERVICE: TimerService = TimerService::new(&*STD_CLOCK);
+    static ref TIMER_SERVICE: TimerService<StdClock> =
+        TimerService::new(StdClock::new());
     static ref STOP_TIMER: AtomicBool = AtomicBool::new(false);
 }
 
