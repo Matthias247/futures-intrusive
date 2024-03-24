@@ -110,6 +110,64 @@ macro_rules! gen_rwlock_tests {
                     assert_eq!(false, lock.is_exclusive());
                 }
             }
+
+            #[test]
+            fn uncontended_upgradable_read() {
+                for is_fair in &[true, false] {
+                    let waker = &panic_waker();
+                    let cx = &mut Context::from_waker(&waker);
+                    let lock = $rwlock_type::new(5, *is_fair);
+                    assert_eq!(false, lock.is_exclusive());
+
+                    {
+                        let fut = lock.upgradable_read();
+                        pin_mut!(fut);
+                        let guard = match fut.as_mut().poll(cx) {
+                            Poll::Pending => {
+                                panic!("Expect mutex to get locked")
+                            }
+                            Poll::Ready(mut guard) => {
+                                assert_eq!(false, lock.is_exclusive());
+                                assert_eq!(5, *guard);
+                                guard
+                            }
+                        };
+                        assert!(fut.as_mut().is_terminated());
+
+                        let fut = guard.upgrade();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => {
+                                panic!("Expect mutex to get locked")
+                            }
+                            Poll::Ready(mut guard) => {
+                                assert_eq!(true, lock.is_exclusive());
+                                assert_eq!(5, *guard);
+                                *guard = 12;
+                                assert_eq!(12, *guard);
+                            }
+                        };
+                    }
+
+                    assert_eq!(false, lock.is_exclusive());
+
+                    {
+                        let fut = lock.upgradable_read();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => {
+                                panic!("Expect mutex to get locked")
+                            }
+                            Poll::Ready(guard) => {
+                                assert_eq!(false, lock.is_exclusive());
+                                assert_eq!(12, *guard);
+                            }
+                        };
+                    }
+
+                    assert_eq!(false, lock.is_exclusive());
+                }
+            }
         }
     };
 }
