@@ -1,9 +1,13 @@
+#![feature(collapse_debuginfo)]
+
 use futures::future::{FusedFuture, Future};
 use futures::task::{Context, Poll};
 use futures_intrusive::sync::LocalRwLock;
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 
+// Allows backtrace to work properly.
+#[collapse_debuginfo]
 macro_rules! gen_rwlock_tests {
     ($mod_name:ident, $rwlock_type:ident) => {
         mod $mod_name {
@@ -24,7 +28,7 @@ macro_rules! gen_rwlock_tests {
                             pin_mut!(fut);
                             match fut.as_mut().poll(cx) {
                                 Poll::Pending => {
-                                    panic!("Expect mutex to get locked")
+                                    panic!("Expect lock to get locked")
                                 }
                                 Poll::Ready(mut guard) => {
                                     assert_eq!(false, lock.is_exclusive());
@@ -53,7 +57,7 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect mutex to get locked")
+                                panic!("Expect lock to get locked")
                             }
                             Poll::Ready(guard) => {
                                 assert_eq!(false, lock.is_exclusive());
@@ -80,7 +84,7 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect mutex to get locked")
+                                panic!("Expect lock to get locked")
                             }
                             Poll::Ready(mut guard) => {
                                 assert_eq!(true, lock.is_exclusive());
@@ -98,7 +102,7 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect mutex to get locked")
+                                panic!("Expect lock to get locked")
                             }
                             Poll::Ready(guard) => {
                                 assert_eq!(true, lock.is_exclusive());
@@ -124,7 +128,7 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         let guard = match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect mutex to get locked")
+                                panic!("Expect lock to get locked")
                             }
                             Poll::Ready(mut guard) => {
                                 assert_eq!(false, lock.is_exclusive());
@@ -138,7 +142,7 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect mutex to get locked")
+                                panic!("Expect lock to get locked")
                             }
                             Poll::Ready(mut guard) => {
                                 assert_eq!(true, lock.is_exclusive());
@@ -156,7 +160,7 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect mutex to get locked")
+                                panic!("Expect lock to get locked")
                             }
                             Poll::Ready(guard) => {
                                 assert_eq!(false, lock.is_exclusive());
@@ -166,6 +170,63 @@ macro_rules! gen_rwlock_tests {
                     }
 
                     assert_eq!(false, lock.is_exclusive());
+                }
+            }
+
+            #[test]
+            fn contended_read() {
+                for is_fair in &[true, false] {
+                    let waker = &panic_waker();
+                    let cx = &mut Context::from_waker(&waker);
+                    let lock = $rwlock_type::new(5, *is_fair);
+                    assert_eq!(false, lock.is_exclusive());
+
+                    let guard = lock.try_write().unwrap();
+
+                    {
+                        assert!(lock.try_read().is_none());
+                        let fut = lock.read();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => (),
+                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        };
+                        assert!(!fut.as_mut().is_terminated());
+                    }
+
+                    {
+                        assert!(lock.try_upgradable_read().is_none());
+                        let fut = lock.upgradable_read();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => (),
+                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        };
+                        assert!(!fut.as_mut().is_terminated());
+                    }
+                }
+            }
+
+            #[test]
+            fn contended_write() {
+                for is_fair in &[true, false] {
+                    let waker = &panic_waker();
+                    let cx = &mut Context::from_waker(&waker);
+                    let lock = $rwlock_type::new(5, *is_fair);
+                    assert_eq!(false, lock.is_exclusive());
+
+                    let guard = lock.try_read().unwrap();
+
+                    {
+                        assert!(lock.try_write().is_none());
+                        let fut = lock.write();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => (),
+                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        };
+                        assert!(!fut.as_mut().is_terminated());
+                    }
                 }
             }
         }
@@ -180,7 +241,7 @@ mod if_std {
     use futures::FutureExt;
     use futures_intrusive::sync::RwLock;
 
-    gen_rwlock_tests!(mutex_tests, RwLock);
+    gen_rwlock_tests!(rwlock_tests, RwLock);
 
     fn is_send<T: Send>(_: &T) {}
 

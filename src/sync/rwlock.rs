@@ -325,7 +325,7 @@ impl MutexState {
     /// In addition to this `node` may not be added to another other list before
     /// it is removed from the current one.
     unsafe fn add_upgrade_read(&mut self, wait_node: &mut ListNode<Entry>) {
-        debug_assert_eq!(wait_node.kind, EntryKind::Write);
+        debug_assert_eq!(wait_node.kind, EntryKind::UpgradeRead);
         self.waiters.add_front(wait_node);
         self.nb_waiting_upgrade_reads += 1;
     }
@@ -352,6 +352,7 @@ impl MutexState {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
+                    self.add_read(wait_node);
                     Poll::Pending
                 }
             }
