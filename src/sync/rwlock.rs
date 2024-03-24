@@ -1280,6 +1280,11 @@ impl<MutexType: RawMutex, T> GenericRwLock<MutexType, T> {
     pub fn is_exclusive(&self) -> bool {
         self.state.lock().has_write
     }
+
+    /// Returns the number of shared read access guards currently held.
+    pub fn nb_readers(&self) -> usize {
+        self.state.lock().nb_reads
+    }
 }
 
 // Export a non thread-safe version using NoopLock
