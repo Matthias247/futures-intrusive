@@ -167,7 +167,7 @@ impl MutexState {
     /// it into a writer lock, waking up entries if needed.
     ///
     /// If the Mutex is not fair does not wakeup anyone.
-    fn unlock_upgrade_write(&mut self) {
+    fn unlock_upgrade_read_for_upgrade(&mut self) {
         self.has_upgrade_read = false;
         self.nb_reads -= 1;
 
@@ -274,7 +274,7 @@ impl MutexState {
     /// Attempt to gain exclusive write access.
     ///
     /// Returns true if the access is obtained.
-    fn try_upgrade_write_sync(&mut self) -> bool {
+    fn try_upgrade_read_sync(&mut self) -> bool {
         // The lock can only be obtained synchronously if
         // - has no write
         // - has 1 read (the caller)
@@ -1006,7 +1006,7 @@ impl<'a, MutexType: RawMutex, T>
     pub fn upgrade(mut self) -> GenericRwLockWriteFuture<'a, MutexType, T> {
         let mutex = self.mutex.take().unwrap();
         let mut state = mutex.state.lock();
-        state.unlock_upgrade_write();
+        state.unlock_upgrade_read_for_upgrade();
 
         GenericRwLockWriteFuture::<MutexType, T> {
             mutex: Some(mutex),
@@ -1021,7 +1021,7 @@ impl<'a, MutexType: RawMutex, T>
     ) -> Result<GenericRwLockWriteGuard<'a, MutexType, T>, Self> {
         let mutex = self.mutex.take().unwrap();
         let mut state = mutex.state.lock();
-        if state.try_upgrade_write_sync() {
+        if state.try_upgrade_read_sync() {
             Ok(GenericRwLockWriteGuard { mutex })
         } else {
             Err(Self { mutex: Some(mutex) })
