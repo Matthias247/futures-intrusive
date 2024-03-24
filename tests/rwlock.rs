@@ -305,6 +305,74 @@ macro_rules! gen_rwlock_tests {
                     assert!(fut2.as_mut().is_terminated());
                 }
             }
+
+            #[test]
+            #[should_panic]
+            fn poll_read_after_completion_should_panic() {
+                for is_fair in &[true, false] {
+                    let waker = &panic_waker();
+                    let cx = &mut Context::from_waker(&waker);
+                    let lock = $rwlock_type::new(5, *is_fair);
+                    assert_eq!(false, lock.is_exclusive());
+
+                    {
+                        let fut = lock.read();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => panic!("rwlock busy"),
+                            Poll::Ready(mut guard) => (),
+                        };
+                        assert!(fut.as_mut().is_terminated());
+
+                        let _ = fut.as_mut().poll(cx);
+                    }
+                }
+            }
+
+            #[test]
+            #[should_panic]
+            fn poll_write_after_completion_should_panic() {
+                for is_fair in &[true, false] {
+                    let waker = &panic_waker();
+                    let cx = &mut Context::from_waker(&waker);
+                    let lock = $rwlock_type::new(5, *is_fair);
+                    assert_eq!(false, lock.is_exclusive());
+
+                    {
+                        let fut = lock.write();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => panic!("rwlock busy"),
+                            Poll::Ready(mut guard) => (),
+                        };
+                        assert!(fut.as_mut().is_terminated());
+
+                        let _ = fut.as_mut().poll(cx);
+                    }
+                }
+            }
+            #[test]
+            #[should_panic]
+            fn poll_upgradable_read_after_completion_should_panic() {
+                for is_fair in &[true, false] {
+                    let waker = &panic_waker();
+                    let cx = &mut Context::from_waker(&waker);
+                    let lock = $rwlock_type::new(5, *is_fair);
+                    assert_eq!(false, lock.is_exclusive());
+
+                    {
+                        let fut = lock.upgradable_read();
+                        pin_mut!(fut);
+                        match fut.as_mut().poll(cx) {
+                            Poll::Pending => panic!("rwlock busy"),
+                            Poll::Ready(mut guard) => (),
+                        };
+                        assert!(fut.as_mut().is_terminated());
+
+                        let _ = fut.as_mut().poll(cx);
+                    }
+                }
+            }
         }
     };
 }
