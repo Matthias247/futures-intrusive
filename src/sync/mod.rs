@@ -41,3 +41,5 @@ pub use self::semaphore::{
     Semaphore, SemaphoreAcquireFuture, SemaphoreReleaser, SharedSemaphore,
     SharedSemaphoreAcquireFuture, SharedSemaphoreReleaser,
 };
+
+mod rwlock;
