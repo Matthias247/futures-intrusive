@@ -179,38 +179,34 @@ impl MutexState {
     fn wakeup_any_waiters(&mut self) {
         let mut nb_reads = 0;
         if self.is_fair {
-            self.waiters.reverse_apply_while(|entry| {
-                match entry.kind {
-                    EntryKind::Read | EntryKind::UpgradeRead => {
+            self.waiters.reverse_apply_while(|entry| match entry.kind {
+                EntryKind::Read | EntryKind::UpgradeRead => {
+                    entry.notify();
+                    nb_reads += 1;
+                    ControlFlow::Continue
+                }
+                EntryKind::Write => {
+                    if nb_reads == 0 {
                         entry.notify();
-                        nb_reads += 1;
+                        ControlFlow::Stop
+                    } else {
                         ControlFlow::Continue
-                    }
-                    EntryKind::Write => {
-                        if nb_reads == 0 {
-                            entry.notify();
-                            ControlFlow::Stop
-                        } else {
-                            ControlFlow::Continue
-                        }
                     }
                 }
             });
         } else {
-            self.waiters.reverse_apply_while(|entry| {
-                match entry.kind {
-                    EntryKind::Read | EntryKind::UpgradeRead => {
+            self.waiters.reverse_apply_while(|entry| match entry.kind {
+                EntryKind::Read | EntryKind::UpgradeRead => {
+                    entry.notify();
+                    nb_reads += 1;
+                    ControlFlow::RemoveAndContinue
+                }
+                EntryKind::Write => {
+                    if nb_reads == 0 {
                         entry.notify();
-                        nb_reads += 1;
-                        ControlFlow::RemoveAndContinue
-                    }
-                    EntryKind::Write => {
-                        if nb_reads == 0 {
-                            entry.notify();
-                            ControlFlow::RemoveAndStop
-                        } else {
-                            ControlFlow::Continue
-                        }
+                        ControlFlow::RemoveAndStop
+                    } else {
+                        ControlFlow::Continue
                     }
                 }
             });
@@ -818,7 +814,7 @@ impl<'a, MutexType: RawMutex, T> Future
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Safety: The next operations are safe, because Pin promises us that
-        // the address of the wait queue entry inside GenericRwLockReadFuture is stable,
+        // the address of the wait queue entry inside this future is stable,
         // and we don't move any fields inside the future until it gets dropped.
         let mut_self: &mut GenericRwLockReadFuture<MutexType, T> =
             unsafe { Pin::get_unchecked_mut(self) };
@@ -849,6 +845,20 @@ impl<'a, MutexType: RawMutex, T> FusedFuture
 {
     fn is_terminated(&self) -> bool {
         self.mutex.is_none()
+    }
+}
+
+impl<'a, MutexType: RawMutex, T> Drop
+    for GenericRwLockReadFuture<'a, MutexType, T>
+{
+    fn drop(&mut self) {
+        // If this GenericRwLockReadFuture has been polled and it was added to the
+        // wait queue at the mutex, it must be removed before dropping.
+        // Otherwise the mutex would access invalid memory.
+        if let Some(mutex) = self.mutex {
+            let mut mutex_state = mutex.state.lock();
+            mutex_state.remove_read(&mut self.wait_node)
+        }
     }
 }
 
@@ -933,7 +943,7 @@ impl<'a, MutexType: RawMutex, T> Future
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Safety: The next operations are safe, because Pin promises us that
-        // the address of the wait queue entry inside GenericRwLockReadFuture is stable,
+        // the address of the wait queue entry inside this future is stable,
         // and we don't move any fields inside the future until it gets dropped.
         let mut_self: &mut GenericRwLockWriteFuture<MutexType, T> =
             unsafe { Pin::get_unchecked_mut(self) };
@@ -971,7 +981,7 @@ impl<'a, MutexType: RawMutex, T> Drop
     for GenericRwLockWriteFuture<'a, MutexType, T>
 {
     fn drop(&mut self) {
-        // If this GenericRwLockReadFuture has been polled and it was added to the
+        // If this GenericRwLockWriteFuture has been polled and it was added to the
         // wait queue at the mutex, it must be removed before dropping.
         // Otherwise the mutex would access invalid memory.
         if let Some(mutex) = self.mutex {
@@ -989,9 +999,13 @@ pub struct GenericRwLockUpgradableReadGuard<'a, MutexType: RawMutex, T: 'a> {
     mutex: Option<&'a GenericRwLock<MutexType, T>>,
 }
 
-impl<'a, MutexType: RawMutex, T> GenericRwLockUpgradableReadGuard<'a, MutexType, T> {
+impl<'a, MutexType: RawMutex, T>
+    GenericRwLockUpgradableReadGuard<'a, MutexType, T>
+{
     /// Asynchrousnly upgrade the shared read lock into an exclusive write lock.
-    pub async fn upgrade(mut self) -> GenericRwLockWriteFuture<'a, MutexType, T> {
+    pub async fn upgrade(
+        mut self,
+    ) -> GenericRwLockWriteFuture<'a, MutexType, T> {
         let mutex = self.mutex.take().unwrap();
         let mut state = mutex.state.lock();
         state.unlock_upgrade_write();
@@ -1004,7 +1018,9 @@ impl<'a, MutexType: RawMutex, T> GenericRwLockUpgradableReadGuard<'a, MutexType,
 
     /// Atomically upgrade the shared read lock into an exclusive write lock,
     /// blocking the current thread.
-    pub async fn try_upgrade(mut self) -> Result<GenericRwLockWriteGuard<'a, MutexType, T>, Self> {
+    pub async fn try_upgrade(
+        mut self,
+    ) -> Result<GenericRwLockWriteGuard<'a, MutexType, T>, Self> {
         let mutex = self.mutex.take().unwrap();
         let mut state = mutex.state.lock();
         if state.try_upgrade_write_sync() {
@@ -1050,7 +1066,6 @@ unsafe impl<MutexType: RawMutex, T: Sync> Sync
 {
 }
 
-
 /// A future which resolves when exclusive write access has been successfully acquired.
 #[must_use = "futures do nothing unless polled"]
 pub struct GenericRwLockUpgradableReadFuture<'a, MutexType: RawMutex, T: 'a> {
@@ -1083,25 +1098,30 @@ impl<'a, MutexType: RawMutex, T> Future
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Safety: The next operations are safe, because Pin promises us that
-        // the address of the wait queue entry inside GenericRwLockReadFuture is stable,
+        // the address of the wait queue entry inside the future is stable,
         // and we don't move any fields inside the future until it gets dropped.
         let mut_self: &mut GenericRwLockUpgradableReadFuture<MutexType, T> =
             unsafe { Pin::get_unchecked_mut(self) };
 
-        let mutex = mut_self
-            .mutex
-            .expect("polled GenericRwLockUpgradableReadFuture after completion");
+        let mutex = mut_self.mutex.expect(
+            "polled GenericRwLockUpgradableReadFuture after completion",
+        );
         let mut mutex_state = mutex.state.lock();
 
-        let poll_res =
-            unsafe { mutex_state.try_lock_upgrade_read(&mut mut_self.wait_node, cx) };
+        let poll_res = unsafe {
+            mutex_state.try_lock_upgrade_read(&mut mut_self.wait_node, cx)
+        };
 
         match poll_res {
             Poll::Pending => Poll::Pending,
             Poll::Ready(()) => {
                 // The mutex was acquired
                 mut_self.mutex = None;
-                Poll::Ready(GenericRwLockUpgradableReadGuard::<'a, MutexType, T> {
+                Poll::Ready(GenericRwLockUpgradableReadGuard::<
+                    'a,
+                    MutexType,
+                    T,
+                > {
                     mutex: Some(mutex),
                 })
             }
@@ -1121,7 +1141,7 @@ impl<'a, MutexType: RawMutex, T> Drop
     for GenericRwLockUpgradableReadFuture<'a, MutexType, T>
 {
     fn drop(&mut self) {
-        // If this GenericRwLockReadFuture has been polled and it was added to the
+        // If this future has been polled and it was added to the
         // wait queue at the mutex, it must be removed before dropping.
         // Otherwise the mutex would access invalid memory.
         if let Some(mutex) = self.mutex {
@@ -1130,6 +1150,7 @@ impl<'a, MutexType: RawMutex, T> Drop
         }
     }
 }
+
 /// A futures-aware mutex.
 pub struct GenericRwLock<MutexType: RawMutex, T> {
     value: UnsafeCell<T>,
@@ -1226,12 +1247,13 @@ impl<MutexType: RawMutex, T> GenericRwLock<MutexType, T> {
         }
     }
 
-
     /// Acquire upgradable shared read access asynchronously.
     ///
     /// This method returns a future that will resolve once the upgradable
     /// shared read access has been successfully acquired.
-    pub fn upgradable_read(&self) -> GenericRwLockUpgradableReadFuture<'_, MutexType, T> {
+    pub fn upgradable_read(
+        &self,
+    ) -> GenericRwLockUpgradableReadFuture<'_, MutexType, T> {
         GenericRwLockUpgradableReadFuture::<MutexType, T> {
             mutex: Some(&self),
             wait_node: ListNode::new(Entry::new(EntryKind::UpgradeRead)),
@@ -1273,14 +1295,16 @@ pub type LocalRwLockReadFuture<'a, T> =
     GenericRwLockReadFuture<'a, NoopLock, T>;
 
 /// A [`GenericRwLockWriteGuard`] for [`LocalMutex`].
-pub type LocalRwLockWriteGuard<'a, T> = GenericRwLockWriteGuard<'a, NoopLock, T>;
+pub type LocalRwLockWriteGuard<'a, T> =
+    GenericRwLockWriteGuard<'a, NoopLock, T>;
 
 /// A [`GenericRwLockWriteFuture`] for [`LocalMutex`].
 pub type LocalRwLockWriteFuture<'a, T> =
     GenericRwLockWriteFuture<'a, NoopLock, T>;
 
 /// A [`GenericRwLockUpgradableReadGuard`] for [`LocalMutex`].
-pub type LocalRwLockUpgradableReadGuard<'a, T> = GenericRwLockUpgradableReadGuard<'a, NoopLock, T>;
+pub type LocalRwLockUpgradableReadGuard<'a, T> =
+    GenericRwLockUpgradableReadGuard<'a, NoopLock, T>;
 
 /// A [`GenericRwLockUpgradableReadFuture`] for [`LocalMutex`].
 pub type LocalRwLockUpgradableReadFuture<'a, T> =

@@ -43,3 +43,18 @@ pub use self::semaphore::{
 };
 
 mod rwlock;
+
+pub use self::rwlock::{
+    GenericRwLock, GenericRwLockReadFuture, GenericRwLockReadGuard,
+    GenericRwLockUpgradableReadFuture, GenericRwLockUpgradableReadGuard,
+    GenericRwLockWriteFuture, GenericRwLockWriteGuard, LocalRwLock,
+    LocalRwLockReadFuture, LocalRwLockReadGuard,
+    LocalRwLockUpgradableReadFuture, LocalRwLockUpgradableReadGuard,
+    LocalRwLockWriteFuture, LocalRwLockWriteGuard,
+};
+
+#[cfg(feature = "std")]
+pub use self::rwlock::{
+    RwLock, RwLockReadFuture, RwLockReadGuard, RwLockUpgradableReadFuture,
+    RwLockUpgradableReadGuard, RwLockWriteFuture, RwLockWriteGuard,
+};
