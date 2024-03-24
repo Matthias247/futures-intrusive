@@ -331,6 +331,10 @@ impl<T> LinkedList<T> {
         let mut current = self.tail;
 
         while let Some(mut node) = current {
+            // Safety: We are exclusively using nodes that are already contained
+            // in the list so they will contain valid data. The nodes can also
+            // not be added to the list again during iteration, since the list
+            // is mutably borrowed.
             unsafe {
                 let flow = func(node.as_mut());
                 match flow {
