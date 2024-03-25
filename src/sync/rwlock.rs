@@ -106,12 +106,10 @@ impl FilterWaiters {
                     } else {
                         ControlFlow::Stop
                     }
+                } else if self.remove_notified {
+                    ControlFlow::RemoveAndContinue
                 } else {
-                    if self.remove_notified {
-                        ControlFlow::RemoveAndContinue
-                    } else {
-                        ControlFlow::Continue
-                    }
+                    ControlFlow::Continue
                 }
             }
             EntryKind::UpgradeRead => {
@@ -132,12 +130,10 @@ impl FilterWaiters {
                         } else {
                             ControlFlow::Stop
                         }
+                    } else if self.remove_notified {
+                        ControlFlow::RemoveAndContinue
                     } else {
-                        if self.remove_notified {
-                            ControlFlow::RemoveAndContinue
-                        } else {
-                            ControlFlow::Continue
-                        }
+                        ControlFlow::Continue
                     }
                 }
             }
