@@ -1106,6 +1106,9 @@ impl<'a, MutexType: RawMutex, T>
     GenericRwLockUpgradableReadGuard<'a, MutexType, T>
 {
     /// Asynchrously upgrade the shared read lock into an exclusive write lock.
+    ///
+    /// Note that this future will have priority over all other competing
+    /// write futures.
     pub fn upgrade(mut self) -> GenericRwLockWriteFuture<'a, MutexType, T> {
         let mutex = self.mutex.take().unwrap();
         let mut state = mutex.state.lock();
