@@ -557,6 +557,76 @@ macro_rules! gen_rwlock_tests {
                 };
             }
         }
+
+        #[test]
+        fn unlock_next_when_notification_is_not_used() {
+            for is_fair in &[true, false] {
+                let (waker, count) = new_count_waker();
+                let cx = &mut Context::from_waker(&waker);
+                let lock = $rwlock_type::new(5, *is_fair);
+
+                // Lock the mutex
+                let mut guard1 = lock.try_write().unwrap();
+
+                // The second and third lock attempt must fail
+                let mut fut2 = Box::pin(lock.write());
+                let mut fut3 = Box::pin(lock.write());
+                let mut fut4 = Box::pin(lock.upgradable_read());
+                let mut fut5 = Box::pin(lock.upgradable_read());
+
+                assert_!(fut2.as_mut().poll(cx).is_pending());
+                assert_!(fut3.as_mut().poll(cx).is_pending());
+                assert_!(fut4.as_mut().poll(cx).is_pending());
+                assert_!(fut5.as_mut().poll(cx).is_pending());
+
+                assert_eq_!(count, 0);
+
+                // Unlock, notifying the next waiter in line.
+                drop(guard1);
+                assert_eq_!(count, 1);
+
+                // Ignore the notification.
+                drop(fut2);
+                assert_eq_!(count, 2);
+
+                // Unlock - mutex should be available again
+                let guard3 = match fut3.as_mut().poll(cx) {
+                    Poll::Pending => panic!("lock busy"),
+                    Poll::Ready(guard) => guard,
+                };
+
+                drop(guard3);
+                assert_eq_!(count, 3);
+                drop(fut4);
+                assert_eq_!(count, 4);
+
+                match fut5.as_mut().poll(cx) {
+                    Poll::Pending => panic!("lock busy"),
+                    Poll::Ready(guard) => (),
+                };
+
+                // We also test cancelling read locks.
+                let guard = lock.try_write().unwrap();
+
+                let mut fut6 = Box::pin(lock.upgradable_read());
+                let mut fut7 = Box::pin(lock.upgradable_read());
+
+                assert_!(fut6.as_mut().poll(cx).is_pending());
+                assert_!(fut7.as_mut().poll(cx).is_pending());
+
+                assert_eq_!(count, 4);
+                drop(guard);
+                assert_eq_!(count, 5);
+                drop(fut6);
+                assert_eq_!(count, 6);
+
+                match fut7.as_mut().poll(cx) {
+                    Poll::Pending => panic!("lock busy"),
+                    Poll::Ready(_) => (),
+                };
+
+            }
+        }
     };
 }
 
