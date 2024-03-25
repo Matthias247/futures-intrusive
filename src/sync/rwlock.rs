@@ -80,6 +80,7 @@ impl Entry {
     }
 }
 
+#[derive(Debug)]
 struct FilterWaiters {
     nb_waiting_reads: usize,
     nb_waiting_upgrade_reads: usize,
@@ -219,7 +220,7 @@ impl MutexState {
         self.has_upgrade_read = false;
         self.nb_reads -= 1;
 
-        if self.nb_reads == 0 {
+        if self.nb_reads == 0 || self.nb_waiting_upgrade_reads > 0 {
             self.wakeup_any_waiters();
         }
     }

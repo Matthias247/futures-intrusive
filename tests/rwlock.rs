@@ -6,7 +6,28 @@ use futures_intrusive::sync::LocalRwLock;
 use futures_test::task::{new_count_waker, panic_waker};
 use pin_utils::pin_mut;
 
-// Allows backtrace to work properly.
+// Allows backtrace to work properly inside macro expension.
+#[collapse_debuginfo]
+macro_rules! assert_eq_ {
+    ($left:expr, $right:expr $(,)?) => {
+        assert_eq!($left, $right);
+    };
+}
+
+#[collapse_debuginfo]
+macro_rules! assert_ {
+    ($val:expr) => {
+        assert!($val)
+    };
+}
+
+#[collapse_debuginfo]
+macro_rules! panic_ {
+    ($val:expr) => {
+        panic!($val)
+    };
+}
+
 #[collapse_debuginfo]
 macro_rules! gen_rwlock_tests {
     ($mod_name:ident, $rwlock_type:ident) => {
@@ -19,7 +40,7 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let mut guards = Vec::with_capacity(3);
@@ -28,28 +49,31 @@ macro_rules! gen_rwlock_tests {
                             pin_mut!(fut);
                             match fut.as_mut().poll(cx) {
                                 Poll::Pending => {
-                                    panic!("Expect lock to get locked")
+                                    panic_!("Expect lock to get locked")
                                 }
                                 Poll::Ready(mut guard) => {
-                                    assert_eq!(false, lock.is_exclusive());
-                                    assert_eq!(5, *guard);
+                                    assert_eq_!(false, lock.is_exclusive());
+                                    assert_eq_!(5, *guard);
                                     guards.push(guard);
-                                    assert_eq!(guards.len(), lock.nb_readers());
+                                    assert_eq_!(
+                                        guards.len(),
+                                        lock.nb_readers()
+                                    );
                                 }
                             };
-                            assert!(fut.as_mut().is_terminated());
+                            assert_!(fut.as_mut().is_terminated());
                         }
 
-                        assert_eq!(3, lock.nb_readers());
+                        assert_eq_!(3, lock.nb_readers());
 
                         drop(guards.pop().unwrap());
-                        assert_eq!(2, lock.nb_readers());
+                        assert_eq_!(2, lock.nb_readers());
 
                         drop(guards.pop().unwrap());
-                        assert_eq!(1, lock.nb_readers());
+                        assert_eq_!(1, lock.nb_readers());
 
                         drop(guards.pop().unwrap());
-                        assert_eq!(0, lock.nb_readers());
+                        assert_eq_!(0, lock.nb_readers());
                     }
 
                     {
@@ -57,17 +81,17 @@ macro_rules! gen_rwlock_tests {
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect lock to get locked")
+                                panic_!("Expect lock to get locked")
                             }
                             Poll::Ready(guard) => {
-                                assert_eq!(false, lock.is_exclusive());
-                                assert_eq!(1, lock.nb_readers());
-                                assert_eq!(5, *guard);
+                                assert_eq_!(false, lock.is_exclusive());
+                                assert_eq_!(1, lock.nb_readers());
+                                assert_eq_!(5, *guard);
                             }
                         };
                     }
 
-                    assert_eq!(0, lock.nb_readers());
+                    assert_eq_!(0, lock.nb_readers());
                 }
             }
 
@@ -77,41 +101,41 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.write();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect lock to get locked")
+                                panic_!("Expect lock to get locked")
                             }
                             Poll::Ready(mut guard) => {
-                                assert_eq!(true, lock.is_exclusive());
-                                assert_eq!(5, *guard);
+                                assert_eq_!(true, lock.is_exclusive());
+                                assert_eq_!(5, *guard);
                                 *guard = 12;
-                                assert_eq!(12, *guard);
+                                assert_eq_!(12, *guard);
                             }
                         };
-                        assert!(fut.as_mut().is_terminated());
+                        assert_!(fut.as_mut().is_terminated());
                     }
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.write();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect lock to get locked")
+                                panic_!("Expect lock to get locked")
                             }
                             Poll::Ready(guard) => {
-                                assert_eq!(true, lock.is_exclusive());
-                                assert_eq!(12, *guard);
+                                assert_eq_!(true, lock.is_exclusive());
+                                assert_eq_!(12, *guard);
                             }
                         };
                     }
 
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
                 }
             }
 
@@ -121,55 +145,55 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.upgradable_read();
                         pin_mut!(fut);
                         let guard = match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect lock to get locked")
+                                panic_!("Expect lock to get locked")
                             }
-                            Poll::Ready(mut guard) => {
-                                assert_eq!(false, lock.is_exclusive());
-                                assert_eq!(5, *guard);
+                            Poll::Ready(guard) => {
+                                assert_eq_!(false, lock.is_exclusive());
+                                assert_eq_!(5, *guard);
                                 guard
                             }
                         };
-                        assert!(fut.as_mut().is_terminated());
+                        assert_!(fut.as_mut().is_terminated());
 
                         let fut = guard.upgrade();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect lock to get locked")
+                                panic_!("Expect lock to get locked")
                             }
                             Poll::Ready(mut guard) => {
-                                assert_eq!(true, lock.is_exclusive());
-                                assert_eq!(5, *guard);
+                                assert_eq_!(true, lock.is_exclusive());
+                                assert_eq_!(5, *guard);
                                 *guard = 12;
-                                assert_eq!(12, *guard);
+                                assert_eq_!(12, *guard);
                             }
                         };
                     }
 
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.upgradable_read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => {
-                                panic!("Expect lock to get locked")
+                                panic_!("Expect lock to get locked")
                             }
                             Poll::Ready(guard) => {
-                                assert_eq!(false, lock.is_exclusive());
-                                assert_eq!(12, *guard);
+                                assert_eq_!(false, lock.is_exclusive());
+                                assert_eq_!(12, *guard);
                             }
                         };
                     }
 
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
                 }
             }
 
@@ -179,30 +203,30 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     let guard = lock.try_write().unwrap();
 
                     {
-                        assert!(lock.try_read().is_none());
+                        assert_!(lock.try_read().is_none());
                         let fut = lock.read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => (),
-                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                            Poll::Ready(guard) => panic_!("rwlock ready"),
                         };
-                        assert!(!fut.as_mut().is_terminated());
+                        assert_!(!fut.as_mut().is_terminated());
                     }
 
                     {
-                        assert!(lock.try_read().is_none());
+                        assert_!(lock.try_read().is_none());
                         let fut = lock.read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => (),
-                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                            Poll::Ready(guard) => panic_!("rwlock ready"),
                         };
-                        assert!(!fut.as_mut().is_terminated());
+                        assert_!(!fut.as_mut().is_terminated());
                     }
                 }
             }
@@ -213,19 +237,19 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     let guard = lock.try_read().unwrap();
 
                     {
-                        assert!(lock.try_write().is_none());
+                        assert_!(lock.try_write().is_none());
                         let fut = lock.write();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => (),
-                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                            Poll::Ready(guard) => panic_!("rwlock ready"),
                         };
-                        assert!(!fut.as_mut().is_terminated());
+                        assert_!(!fut.as_mut().is_terminated());
                     }
                 }
             }
@@ -236,31 +260,31 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     let guard = lock.try_upgradable_read().unwrap();
                     {
-                        assert!(lock.try_upgradable_read().is_none());
+                        assert_!(lock.try_upgradable_read().is_none());
                         let fut = lock.upgradable_read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => (),
-                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                            Poll::Ready(guard) => panic_!("rwlock ready"),
                         };
-                        assert!(!fut.as_mut().is_terminated());
+                        assert_!(!fut.as_mut().is_terminated());
                     }
                     drop(guard);
 
                     let guard = lock.try_write().unwrap();
                     {
-                        assert!(lock.try_upgradable_read().is_none());
+                        assert_!(lock.try_upgradable_read().is_none());
                         let fut = lock.upgradable_read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
                             Poll::Pending => (),
-                            Poll::Ready(mut guard) => panic!("rwlock ready"),
+                            Poll::Ready(guard) => panic_!("rwlock ready"),
                         };
-                        assert!(!fut.as_mut().is_terminated());
+                        assert_!(!fut.as_mut().is_terminated());
                     }
                 }
             }
@@ -271,7 +295,7 @@ macro_rules! gen_rwlock_tests {
                     let (waker, count) = new_count_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     let guard = lock.try_read().unwrap();
 
@@ -279,20 +303,20 @@ macro_rules! gen_rwlock_tests {
                     pin_mut!(fut);
                     match fut.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
-                    assert!(!fut.as_mut().is_terminated());
+                    assert_!(!fut.as_mut().is_terminated());
 
-                    assert_eq!(count, 0);
+                    assert_eq_!(count, 0);
 
                     drop(guard);
-                    assert_eq!(count, 1);
+                    assert_eq_!(count, 1);
 
                     match fut.as_mut().poll(cx) {
-                        Poll::Pending => panic!("rwlock busy"),
-                        Poll::Ready(mut guard) => (),
+                        Poll::Pending => panic_!("rwlock busy"),
+                        Poll::Ready(guard) => (),
                     };
-                    assert!(fut.as_mut().is_terminated());
+                    assert_!(fut.as_mut().is_terminated());
                 }
             }
 
@@ -302,7 +326,7 @@ macro_rules! gen_rwlock_tests {
                     let (waker, count) = new_count_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     let guard = lock.try_write().unwrap();
 
@@ -310,34 +334,34 @@ macro_rules! gen_rwlock_tests {
                     pin_mut!(fut1);
                     match fut1.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
-                    assert!(!fut1.as_mut().is_terminated());
+                    assert_!(!fut1.as_mut().is_terminated());
 
                     let fut2 = lock.upgradable_read();
                     pin_mut!(fut2);
                     match fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
-                    assert!(!fut2.as_mut().is_terminated());
+                    assert_!(!fut2.as_mut().is_terminated());
 
-                    assert_eq!(count, 0);
+                    assert_eq_!(count, 0);
 
                     drop(guard);
-                    assert_eq!(count, 2);
+                    assert_eq_!(count, 2);
 
                     match fut1.as_mut().poll(cx) {
-                        Poll::Pending => panic!("rwlock busy"),
-                        Poll::Ready(mut guard) => (),
+                        Poll::Pending => panic_!("rwlock busy"),
+                        Poll::Ready(guard) => (),
                     };
-                    assert!(fut1.as_mut().is_terminated());
+                    assert_!(fut1.as_mut().is_terminated());
 
                     match fut2.as_mut().poll(cx) {
-                        Poll::Pending => panic!("rwlock busy"),
-                        Poll::Ready(mut guard) => (),
+                        Poll::Pending => panic_!("rwlock busy"),
+                        Poll::Ready(guard) => (),
                     };
-                    assert!(fut2.as_mut().is_terminated());
+                    assert_!(fut2.as_mut().is_terminated());
                 }
             }
 
@@ -348,16 +372,16 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
-                            Poll::Pending => panic!("rwlock busy"),
-                            Poll::Ready(mut guard) => (),
+                            Poll::Pending => panic_!("rwlock busy"),
+                            Poll::Ready(guard) => (),
                         };
-                        assert!(fut.as_mut().is_terminated());
+                        assert_!(fut.as_mut().is_terminated());
 
                         let _ = fut.as_mut().poll(cx);
                     }
@@ -371,16 +395,16 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.write();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
-                            Poll::Pending => panic!("rwlock busy"),
-                            Poll::Ready(mut guard) => (),
+                            Poll::Pending => panic_!("rwlock busy"),
+                            Poll::Ready(guard) => (),
                         };
-                        assert!(fut.as_mut().is_terminated());
+                        assert_!(fut.as_mut().is_terminated());
 
                         let _ = fut.as_mut().poll(cx);
                     }
@@ -394,16 +418,16 @@ macro_rules! gen_rwlock_tests {
                     let waker = &panic_waker();
                     let cx = &mut Context::from_waker(&waker);
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     {
                         let fut = lock.upgradable_read();
                         pin_mut!(fut);
                         match fut.as_mut().poll(cx) {
-                            Poll::Pending => panic!("rwlock busy"),
-                            Poll::Ready(mut guard) => (),
+                            Poll::Pending => panic_!("rwlock busy"),
+                            Poll::Ready(guard) => (),
                         };
-                        assert!(fut.as_mut().is_terminated());
+                        assert_!(fut.as_mut().is_terminated());
 
                         let _ = fut.as_mut().poll(cx);
                     }
@@ -411,10 +435,10 @@ macro_rules! gen_rwlock_tests {
             }
 
             #[test]
-            fn dropping_writer_follow_queue_order_for_wakeup() {
+            fn dropping_guard_follows_queue_order_for_wakeup() {
                 for is_fair in &[true, false] {
                     let lock = $rwlock_type::new(5, *is_fair);
-                    assert_eq!(false, lock.is_exclusive());
+                    assert_eq_!(false, lock.is_exclusive());
 
                     let (waker, count) = new_count_waker();
                     let cx = &mut Context::from_waker(&waker);
@@ -425,132 +449,133 @@ macro_rules! gen_rwlock_tests {
                     pin_mut!(read_fut1);
                     match read_fut1.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
 
                     let read_fut2 = lock.read();
                     pin_mut!(read_fut2);
                     match read_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
-                    };
-
-                    let upgrade_read_fut1 = lock.upgradable_read();
-                    pin_mut!(upgrade_read_fut1);
-                    match upgrade_read_fut1.as_mut().poll(cx) {
-                        Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
-                    };
-
-                    let upgrade_read_fut2 = lock.upgradable_read();
-                    pin_mut!(upgrade_read_fut2);
-                    match upgrade_read_fut2.as_mut().poll(cx) {
-                        Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
 
                     let write_fut1 = lock.write();
                     pin_mut!(write_fut1);
                     match write_fut1.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
+                    };
+
+                    let upgrade_read_fut1 = lock.upgradable_read();
+                    pin_mut!(upgrade_read_fut1);
+                    match upgrade_read_fut1.as_mut().poll(cx) {
+                        Poll::Pending => (),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
+                    };
+
+                    let upgrade_read_fut2 = lock.upgradable_read();
+                    pin_mut!(upgrade_read_fut2);
+                    match upgrade_read_fut2.as_mut().poll(cx) {
+                        Poll::Pending => (),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
 
                     let write_fut2 = lock.write();
                     pin_mut!(write_fut2);
                     match write_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
 
                     let read_fut3 = lock.read();
                     pin_mut!(read_fut3);
                     match read_fut3.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("rwlock ready"),
+                        Poll::Ready(guard) => panic_!("rwlock ready"),
                     };
 
-                    assert_eq!(count, 0);
+                    assert_eq_!(count, 0);
 
                     drop(writer);
 
                     // Wakeup the three readers and 1 upgradable_read.
-                    assert_eq!(count, 4);
+                    assert_eq_!(count, 4);
 
                     let guard1 = match read_fut1.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => guard,
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => guard,
                     };
                     let guard2 = match read_fut2.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => guard,
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => guard,
                     };
                     let guard3 = match upgrade_read_fut1.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => guard,
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => guard,
                     };
                     let guard4 = match read_fut3.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => guard,
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => guard,
                     };
                     match upgrade_read_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("busy rwlock"),
+                        Poll::Ready(guard) => panic_!("busy rwlock"),
                     };
                     match write_fut1.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("busy rwlock"),
+                        Poll::Ready(guard) => panic_!("busy rwlock"),
                     };
                     match write_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("busy rwlock"),
+                        Poll::Ready(guard) => panic_!("busy rwlock"),
                     };
 
-                    assert_eq!(count, 4);
+                    assert_eq_!(count, 4);
 
                     drop(guard1);
-                    assert_eq!(count, 4);
+                    assert_eq_!(count, 4);
 
+                    // Wakeup the other upgradable_read
                     drop(guard3);
-                    assert_eq!(count, 5);
+                    assert_eq_!(count, 5);
 
                     let guard5 = match upgrade_read_fut2.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => guard,
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => guard,
                     };
                     match write_fut1.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("busy rwlock"),
+                        Poll::Ready(guard) => panic_!("busy rwlock"),
                     };
                     match write_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("busy rwlock"),
+                        Poll::Ready(guard) => panic_!("busy rwlock"),
                     };
 
                     drop(guard2);
-                    assert_eq!(count, 5);
+                    assert_eq_!(count, 5);
                     drop(guard5);
-                    assert_eq!(count, 5);
+                    assert_eq_!(count, 5);
                     drop(guard4);
-                    assert_eq!(count, 6);
+                    assert_eq_!(count, 6);
 
                     let guard6 = match write_fut1.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => guard,
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => guard,
                     };
                     match write_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
-                        Poll::Ready(mut guard) => panic!("busy rwlock"),
+                        Poll::Ready(guard) => panic_!("busy rwlock"),
                     };
 
                     drop(guard6);
-                    assert_eq!(count, 7);
+                    assert_eq_!(count, 7);
 
                     match write_fut2.as_mut().poll(cx) {
-                        Poll::Pending => panic!("busy rwlock"),
-                        Poll::Ready(mut guard) => (),
+                        Poll::Pending => panic_!("busy rwlock"),
+                        Poll::Ready(guard) => (),
                     };
-                    assert_eq!(count, 7);
+                    assert_eq_!(count, 7);
                 }
             }
         }
@@ -594,7 +619,7 @@ mod if_std {
                         let res = fut.poll_unpin(cx);
                         let guard = match res {
                             Poll::Ready(v) => v,
-                            Poll::Pending => panic!("Expected to be ready"),
+                            Poll::Pending => panic_!("Expected to be ready"),
                         };
                         is_send(&guard);
                         is_send_value(guard);
