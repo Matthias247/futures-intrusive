@@ -263,12 +263,12 @@ impl MutexState {
     /// Returns the number of read waiters that could acquire
     /// the read lock immediately.
     fn nb_immediate_read_waiters(&self) -> usize {
-        if self.has_upgrade_read {
-            // We don't count the nb_waiting_upgrade_reads because
-            // they cannot immediately acquire the read lock.
+        if self.has_write {
+            0
+        } else if self.has_upgrade_read {
             self.nb_waiting_reads
         } else {
-            self.nb_waiting_reads + self.nb_waiting_upgrade_reads
+            self.nb_waiting_reads + 1
         }
     }
 
