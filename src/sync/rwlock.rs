@@ -105,7 +105,6 @@ impl FilterWaiters {
                 // iteration, implying that there is not writer lock.
                 // Therefore we can notify every read lock waiter.
                 entry.notify();
-                debug_assert!(!self.has_write);
                 self.nb_reads += 1;
                 self.nb_waiting_reads -= 1;
 
@@ -136,7 +135,6 @@ impl FilterWaiters {
                 } else {
                     // Like with the `Read` variant, we know that the lock
                     // is currently shared.
-                    debug_assert!(!self.has_write);
                     entry.notify();
                     self.has_upgrade_read = true;
                     self.nb_reads += 1;
@@ -228,9 +226,7 @@ impl MutexState {
     /// the wait queue
     fn unlock_read(&mut self) {
         self.nb_reads -= 1;
-        if self.nb_reads == 0 {
-            self.wakeup_any_waiters();
-        }
+        self.wakeup_waiters_if_needed();
     }
 
     /// Release the exclusive writer lock, waking up entries
@@ -242,7 +238,7 @@ impl MutexState {
         self.has_write = false;
         debug_assert_eq!(self.nb_reads, 0);
 
-        self.wakeup_any_waiters()
+        self.wakeup_waiters_if_needed()
     }
 
     /// Release the upgradable reader lock, waking up entries
@@ -253,10 +249,7 @@ impl MutexState {
     fn unlock_upgrade_read(&mut self) {
         self.has_upgrade_read = false;
         self.nb_reads -= 1;
-
-        if self.nb_reads == 0 || self.nb_waiting_upgrade_reads > 0 {
-            self.wakeup_any_waiters();
-        }
+        self.wakeup_waiters_if_needed();
     }
 
     /// Release the upgradable reader lock to upgrade
@@ -267,10 +260,32 @@ impl MutexState {
         // We don't wakeup anyone because the upgrade has priority.
     }
 
+    /// Returns the number of read waiters that could acquire
+    /// the read lock immediately.
+    fn nb_immediate_read_waiters(&self) -> usize {
+        if self.has_upgrade_read {
+            // We don't count the nb_waiting_upgrade_reads because
+            // they cannot immediately acquire the read lock.
+            self.nb_waiting_reads
+        } else {
+            self.nb_waiting_reads + self.nb_waiting_upgrade_reads
+        }
+    }
+
     /// Wakeup waiters from back to front.
     ///
     /// If the mutex is unfair, notified entries are removed from the queue.
-    fn wakeup_any_waiters(&mut self) {
+    fn wakeup_waiters_if_needed(&mut self) {
+        // We never need to wakeup waiters if
+        // - an exclusive write lock is held.
+        // - the queue is empty.
+        // - there are readers but no immediate read waiters.
+        if self.has_write
+            || self.waiters.is_empty()
+            || (self.nb_reads > 0 && self.nb_immediate_read_waiters() == 0)
+        {
+            return;
+        }
         let mut filter = FilterWaiters {
             nb_waiting_reads: self.nb_waiting_reads,
             nb_waiting_upgrade_reads: self.nb_waiting_upgrade_reads,
@@ -735,7 +750,7 @@ impl MutexState {
                 wait_node.state = PollState::Done;
                 // Since the task was notified but did not lock the Mutex,
                 // another task gets the chance to run.
-                self.wakeup_any_waiters();
+                self.wakeup_waiters_if_needed();
             }
             PollState::Waiting => {
                 // Remove the Entry from the linked list
@@ -772,7 +787,7 @@ impl MutexState {
                 wait_node.state = PollState::Done;
                 // Since the task was notified but did not lock the Mutex,
                 // another task gets the chance to run.
-                self.wakeup_any_waiters();
+                self.wakeup_waiters_if_needed();
             }
             PollState::Waiting => {
                 // Remove the Entry from the linked list
@@ -809,7 +824,7 @@ impl MutexState {
                 wait_node.state = PollState::Done;
                 // Since the task was notified but did not lock the Mutex,
                 // another task gets the chance to run.
-                self.wakeup_any_waiters();
+                self.wakeup_waiters_if_needed();
             }
             PollState::Waiting => {
                 // Remove the Entry from the linked list
