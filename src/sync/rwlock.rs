@@ -80,6 +80,82 @@ impl Entry {
     }
 }
 
+struct FilterWaiters {
+    nb_waiting_reads: usize,
+    nb_waiting_upgrade_reads: usize,
+    nb_reads: usize,
+    has_upgrade_read: bool,
+    remove_notified: bool,
+}
+
+impl FilterWaiters {
+    fn filter(&mut self, entry: &mut ListNode<Entry>) -> ControlFlow {
+        match entry.kind {
+            EntryKind::Read => {
+                entry.notify();
+                self.nb_reads += 1;
+                self.nb_waiting_reads -= 1;
+                if self.nb_waiting_reads == 0
+                    && (self.has_upgrade_read
+                        || self.nb_waiting_upgrade_reads == 0)
+                {
+                    if self.remove_notified {
+                        ControlFlow::RemoveAndStop
+                    } else {
+                        ControlFlow::Stop
+                    }
+                } else {
+                    if self.remove_notified {
+                        ControlFlow::RemoveAndContinue
+                    } else {
+                        ControlFlow::Continue
+                    }
+                }
+            }
+            EntryKind::UpgradeRead => {
+                if self.has_upgrade_read {
+                    ControlFlow::Continue
+                } else {
+                    entry.notify();
+                    self.has_upgrade_read = true;
+                    self.nb_reads += 1;
+                    self.nb_waiting_upgrade_reads -= 1;
+                    if self.nb_waiting_reads == 0 {
+                        if self.remove_notified {
+                            ControlFlow::RemoveAndStop
+                        } else {
+                            ControlFlow::Stop
+                        }
+                    } else {
+                        if self.remove_notified {
+                            ControlFlow::RemoveAndContinue
+                        } else {
+                            ControlFlow::Continue
+                        }
+                    }
+                }
+            }
+            EntryKind::Write => {
+                if self.nb_reads == 0 {
+                    entry.notify();
+                    if self.remove_notified {
+                        ControlFlow::RemoveAndStop
+                    } else {
+                        ControlFlow::Stop
+                    }
+                } else if self.nb_waiting_reads != 0
+                    || (!self.has_upgrade_read
+                        && self.nb_waiting_upgrade_reads != 0)
+                {
+                    ControlFlow::Continue
+                } else {
+                    ControlFlow::Stop
+                }
+            }
+        }
+    }
+}
+
 /// Internal state of the `Mutex`
 struct MutexState {
     is_fair: bool,
@@ -177,40 +253,15 @@ impl MutexState {
     }
 
     fn wakeup_any_waiters(&mut self) {
-        let mut nb_reads = 0;
-        if self.is_fair {
-            self.waiters.reverse_apply_while(|entry| match entry.kind {
-                EntryKind::Read | EntryKind::UpgradeRead => {
-                    entry.notify();
-                    nb_reads += 1;
-                    ControlFlow::Continue
-                }
-                EntryKind::Write => {
-                    if nb_reads == 0 {
-                        entry.notify();
-                        ControlFlow::Stop
-                    } else {
-                        ControlFlow::Continue
-                    }
-                }
-            });
-        } else {
-            self.waiters.reverse_apply_while(|entry| match entry.kind {
-                EntryKind::Read | EntryKind::UpgradeRead => {
-                    entry.notify();
-                    nb_reads += 1;
-                    ControlFlow::RemoveAndContinue
-                }
-                EntryKind::Write => {
-                    if nb_reads == 0 {
-                        entry.notify();
-                        ControlFlow::RemoveAndStop
-                    } else {
-                        ControlFlow::Continue
-                    }
-                }
-            });
+        let mut filter = FilterWaiters {
+            nb_waiting_reads: self.nb_waiting_reads,
+            nb_waiting_upgrade_reads: self.nb_waiting_upgrade_reads,
+            nb_reads: self.nb_reads,
+            has_upgrade_read: self.has_upgrade_read,
+            remove_notified: !self.is_fair,
         };
+        self.waiters
+            .reverse_apply_while(|entry| filter.filter(entry));
     }
 
     /// Attempt To gain shared read access.
