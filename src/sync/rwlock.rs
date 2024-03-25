@@ -18,7 +18,7 @@ use futures_core::{
 use lock_api::{Mutex as LockApiMutex, RawMutex};
 
 /// Tracks how the future had interacted with the mutex
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum PollState {
     /// The task has never interacted with the mutex.
     New,
@@ -49,6 +49,7 @@ enum EntryKind {
 
 /// Tracks the MutexLockFuture waiting state.
 /// Access to this struct is synchronized through the mutex in the Event.
+#[derive(Debug)]
 struct Entry {
     /// The task handle of the waiting task
     task: Option<Waker>,

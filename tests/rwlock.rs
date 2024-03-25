@@ -627,6 +627,56 @@ macro_rules! gen_rwlock_tests {
 
             }
         }
+
+        #[test]
+        fn new_waiters_on_unfair_lock_can_acquire_future_while_one_task_is_notified() {
+            let (waker, count) = new_count_waker();
+            let cx = &mut Context::from_waker(&waker);
+            let lock = $rwlock_type::new(5, false);
+
+            let mut guard1 = lock.try_write().unwrap();
+
+            // The second and third lock attempt must fail
+            let mut fut2 = Box::pin(lock.write());
+            let mut fut3 = Box::pin(lock.upgradable_read());
+            let mut fut4 = Box::pin(lock.write());
+
+            assert_!(fut2.as_mut().poll(cx).is_pending());
+            assert_!(fut3.as_mut().poll(cx).is_pending());
+
+            // Notify fut2.
+            drop(guard1);
+            assert_eq_!(count, 1);
+
+            // Steal the lock.
+            let guard4 = match fut4.as_mut().poll(cx) {
+                Poll::Pending => panic_!("Expect mutex to get locked"),
+                Poll::Ready(guard) => guard,
+            };
+            // The futures must requeue.
+            assert_!(fut2.as_mut().poll(cx).is_pending());
+            assert_!(fut3.as_mut().poll(cx).is_pending());
+
+            // When we drop fut3, the mutex should signal that it's available for fut2,
+            // which needs to have re-registered
+            drop(guard4);
+            assert_eq_!(count, 2);
+
+            let guard2 = match fut2.as_mut().poll(cx) {
+                Poll::Pending => panic_!("Expect mutex to get locked"),
+                Poll::Ready(guard) => guard,
+            };
+
+            assert_!(fut3.as_mut().poll(cx).is_pending());
+
+            drop(guard2);
+            assert_eq_!(count, 3);
+
+            match fut3.as_mut().poll(cx) {
+                Poll::Pending => panic_!("Expect mutex to get locked"),
+                Poll::Ready(_) => (),
+            };
+        }
     };
 }
 
