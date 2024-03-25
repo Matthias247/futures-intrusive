@@ -844,8 +844,11 @@ macro_rules! gen_rwlock_tests {
                 drop(guard1);
                 assert_eq_!(count, 1);
 
+                // We got the write lock first because of priority.
                 assert_!(fut4.as_mut().poll(cx).is_ready());
                 assert_eq_!(count, 2);
+
+                // Make sure the lock is released properly.
                 assert_!(fut3.as_mut().poll(cx).is_ready());
             }
         }
