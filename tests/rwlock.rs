@@ -812,6 +812,43 @@ macro_rules! gen_rwlock_tests {
                 assert_!(fut3.as_mut().poll(cx_2).is_ready());
             }
         }
+
+        #[test]
+        fn upgrade_guard_has_priority_over_writer() {
+            for is_fair in &[true, false] {
+                let (waker, count) = new_count_waker();
+                let lock = $rwlock_type::new(5, *is_fair);
+
+                // Acquire the upgradable lock.
+                let mut guard1 = lock.try_read().unwrap();
+                let mut guard2 = lock.try_upgradable_read().unwrap();
+
+                let cx = &mut Context::from_waker(&waker);
+
+                // Wait for the write lock.
+                let fut3 = lock.write();
+                pin_mut!(fut3);
+                assert_!(fut3.as_mut().poll(cx).is_pending());
+
+                // We can't upgrade because of the other reader.
+                let guard2 = guard2.try_upgrade().unwrap_err();
+
+                // Add contention for the write lock.
+                let fut4 = guard2.upgrade();
+                pin_mut!(fut4);
+                assert_!(fut4.as_mut().poll(cx).is_pending());
+
+                assert_eq_!(count, 0);
+                // This should wakeup the upgrading upgradable_read because
+                // it has priority.
+                drop(guard1);
+                assert_eq_!(count, 1);
+
+                assert_!(fut4.as_mut().poll(cx).is_ready());
+                assert_eq_!(count, 2);
+                assert_!(fut3.as_mut().poll(cx).is_ready());
+            }
+        }
     };
 }
 

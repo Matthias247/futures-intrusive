@@ -233,10 +233,7 @@ impl MutexState {
     fn unlock_upgrade_read_for_upgrade(&mut self) {
         self.has_upgrade_read = false;
         self.nb_reads -= 1;
-
-        if self.nb_reads == 0 && self.is_fair {
-            self.wakeup_any_waiters();
-        }
+        // We don't wakeup anyone because the upgrade has priority.
     }
 
     fn wakeup_any_waiters(&mut self) {
@@ -314,16 +311,9 @@ impl MutexState {
     /// Returns true if the access is obtained.
     fn try_upgrade_read_sync(&mut self) -> bool {
         // The lock can only be obtained synchronously if
-        // - has no write
         // - has 1 read (the caller)
-        // - the Semaphore is either not fair, or there are no waiting writes.
         debug_assert!(self.has_upgrade_read);
-        if !self.has_write
-            && self.nb_reads == 1
-            && (!self.is_fair
-                || (self.nb_waiting_writes == 0
-                    && self.nb_waiting_upgrade_reads == 0))
-        {
+        if self.nb_reads == 1 {
             self.has_write = true;
             self.nb_reads -= 1;
             self.has_upgrade_read = false;
@@ -350,9 +340,17 @@ impl MutexState {
     /// Safety: This function is only safe as long as `node` is guaranteed to
     /// get removed from the list before it gets moved or dropped.
     /// In addition to this `node` may not be added to another other list before it is removed from the current one.
-    unsafe fn add_write(&mut self, wait_node: &mut ListNode<Entry>) {
+    unsafe fn add_write(
+        &mut self,
+        wait_node: &mut ListNode<Entry>,
+        has_priority: bool,
+    ) {
         debug_assert_eq!(wait_node.kind, EntryKind::Write);
-        self.waiters.add_front(wait_node);
+        if !has_priority {
+            self.waiters.add_front(wait_node);
+        } else {
+            self.waiters.add_back(wait_node);
+        }
         self.nb_waiting_writes += 1;
     }
 
@@ -466,6 +464,7 @@ impl MutexState {
         &mut self,
         wait_node: &mut ListNode<Entry>,
         cx: &mut Context<'_>,
+        has_priority: bool,
     ) -> Poll<()> {
         match wait_node.state {
             PollState::New => {
@@ -478,7 +477,7 @@ impl MutexState {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_write(wait_node);
+                    self.add_write(wait_node, has_priority);
                     Poll::Pending
                 }
             }
@@ -533,7 +532,7 @@ impl MutexState {
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_write(wait_node);
+                    self.add_write(wait_node, has_priority);
                     Poll::Pending
                 }
             }
@@ -957,6 +956,9 @@ pub struct GenericRwLockWriteFuture<'a, MutexType: RawMutex, T: 'a> {
     mutex: Option<&'a GenericRwLock<MutexType, T>>,
     /// Node for waiting at the mutex
     wait_node: ListNode<Entry>,
+    /// Whether this is a upgradable_read lock that is being upgraded,
+    /// thus has priority over the other writers.
+    has_priority: bool,
 }
 
 // Safety: Futures can be sent between threads as long as the underlying
@@ -992,8 +994,13 @@ impl<'a, MutexType: RawMutex, T> Future
             .expect("polled GenericRwLockWriteFuture after completion");
         let mut mutex_state = mutex.state.lock();
 
-        let poll_res =
-            unsafe { mutex_state.try_lock_write(&mut mut_self.wait_node, cx) };
+        let poll_res = unsafe {
+            mutex_state.try_lock_write(
+                &mut mut_self.wait_node,
+                cx,
+                mut_self.has_priority,
+            )
+        };
 
         match poll_res {
             Poll::Pending => Poll::Pending,
@@ -1050,6 +1057,7 @@ impl<'a, MutexType: RawMutex, T>
         GenericRwLockWriteFuture::<MutexType, T> {
             mutex: Some(mutex),
             wait_node: ListNode::new(Entry::new(EntryKind::Write)),
+            has_priority: true,
         }
     }
 
@@ -1265,6 +1273,7 @@ impl<MutexType: RawMutex, T> GenericRwLock<MutexType, T> {
         GenericRwLockWriteFuture::<MutexType, T> {
             mutex: Some(&self),
             wait_node: ListNode::new(Entry::new(EntryKind::Write)),
+            has_priority: false,
         }
     }
 

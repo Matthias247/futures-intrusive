@@ -81,6 +81,25 @@ impl<T> LinkedList<T> {
         }
     }
 
+    /// Adds a node at the back of the linked list.
+    ///
+    /// Safety: This function is only safe as long as `node` is guaranteed to
+    /// get removed from the list before it gets moved or dropped.
+    /// In addition to this `node` may not be added to another other list before
+    /// it is removed from the current one.
+    pub unsafe fn add_back(&mut self, node: &mut ListNode<T>) {
+        node.next = None;
+        node.prev = self.tail;
+        match self.tail {
+            Some(mut tail) => tail.as_mut().next = Some(node.into()),
+            None => {}
+        };
+        self.tail = Some(node.into());
+        if self.head.is_none() {
+            self.head = Some(node.into());
+        }
+    }
+
     /// Returns a reference to the first node in the linked list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
