@@ -849,6 +849,28 @@ macro_rules! gen_rwlock_tests {
                 assert_!(fut3.as_mut().poll(cx).is_ready());
             }
         }
+
+        #[test]
+        fn upgrade_guard_sync_contention() {
+            for is_fair in &[true, false] {
+                let (waker, count) = new_count_waker();
+                let lock = $rwlock_type::new(5, *is_fair);
+
+                // Acquire the upgradable lock.
+                let mut guard1 = lock.try_read().unwrap();
+                let mut guard2 = lock.try_upgradable_read().unwrap();
+
+                // We can't upgrade because of the oother reader.
+                let guard2 = guard2.try_upgrade().unwrap_err();
+                drop(guard1);
+
+                // Can't acquire a write lock because of the upgradable_read.
+                assert_!(lock.try_write().is_none());
+
+                // Now we can upgrade.
+                let _guard3 = guard2.try_upgrade().unwrap();
+            }
+        }
     };
 }
 
