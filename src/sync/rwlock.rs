@@ -44,6 +44,9 @@ enum EntryKind {
     Read,
 
     /// A upgradable shared read access.
+    ///
+    /// While only one `UpgradeRead` guard can be open at a time, it can be
+    /// open alongside any number of `Read` guards.
     UpgradeRead,
 }
 
@@ -81,6 +84,9 @@ impl Entry {
     }
 }
 
+/// Keeps track of the hypothetical future state of the `MutexState`
+/// if all the notified waiters were to acquire their respective
+/// locks.
 #[derive(Debug)]
 struct FilterWaiters {
     nb_waiting_reads: usize,
@@ -91,16 +97,23 @@ struct FilterWaiters {
 }
 
 impl FilterWaiters {
+    /// Wakeup as many waiters without contention.
     fn filter(&mut self, entry: &mut ListNode<Entry>) -> ControlFlow {
         match entry.kind {
             EntryKind::Read => {
+                // Since a writer lock is exclusive, it will end the
+                // iteration, implying that there is not writer lock.
+                // Therefore we can notify every read lock waiter.
                 entry.notify();
+                debug_assert!(!self.has_write);
                 self.nb_reads += 1;
                 self.nb_waiting_reads -= 1;
+
                 if self.nb_waiting_reads == 0
                     && (self.has_upgrade_read
                         || self.nb_waiting_upgrade_reads == 0)
                 {
+                    // This is the last reader.
                     if self.remove_notified {
                         ControlFlow::RemoveAndStop
                     } else {
@@ -117,14 +130,19 @@ impl FilterWaiters {
                     if self.nb_waiting_reads > 0 {
                         ControlFlow::Continue
                     } else {
+                        // This was the last reader.
                         ControlFlow::Stop
                     }
                 } else {
+                    // Like with the `Read` variant, we know that the lock
+                    // is currently shared.
+                    debug_assert!(!self.has_write);
                     entry.notify();
                     self.has_upgrade_read = true;
                     self.nb_reads += 1;
                     self.nb_waiting_upgrade_reads -= 1;
                     if self.nb_waiting_reads == 0 {
+                        // This was the last reader.
                         if self.remove_notified {
                             ControlFlow::RemoveAndStop
                         } else {
@@ -139,6 +157,8 @@ impl FilterWaiters {
             }
             EntryKind::Write => {
                 if self.nb_reads == 0 {
+                    // We have the exclusive write lock so we end
+                    // the iteration.
                     entry.notify();
                     if self.remove_notified {
                         ControlFlow::RemoveAndStop
@@ -151,6 +171,7 @@ impl FilterWaiters {
                 {
                     ControlFlow::Continue
                 } else {
+                    // Iteration would be a waste of time.
                     ControlFlow::Stop
                 }
             }
@@ -160,13 +181,29 @@ impl FilterWaiters {
 
 /// Internal state of the `Mutex`
 struct MutexState {
+    /// Whether this is a fair mutex, meaning the queue order
+    /// is respected.
     is_fair: bool,
+
+    /// The current number of open read lock guards.
     nb_reads: usize,
+
+    /// Whether a exclusive upgradable read guard is open.
     has_upgrade_read: bool,
+
+    /// Whether a exclusive writer guard is open.
     has_write: bool,
+
+    /// The waiter queue.
     waiters: LinkedList<Entry>,
+
+    /// The number of write lock waiters in the queue.
     nb_waiting_writes: usize,
+
+    /// The number of read lock waiters in the queue.
     nb_waiting_reads: usize,
+
+    /// The number of upgradable_read lock waiters in the queue.
     nb_waiting_upgrade_reads: usize,
 }
 
@@ -185,7 +222,7 @@ impl MutexState {
     }
 
     /// Reduce the number of reads on the lock by one, waking
-    /// up a write if needed.
+    /// up waiters if needed.
     ///
     /// If the Mutex is not fair, removes the woken up node from
     /// the wait queue
@@ -223,15 +260,16 @@ impl MutexState {
     }
 
     /// Release the upgradable reader lock to upgrade
-    /// it into a writer lock, waking up entries if needed.
-    ///
-    /// If the Mutex is not fair does not wakeup anyone.
+    /// it into a writer lock.
     fn unlock_upgrade_read_for_upgrade(&mut self) {
         self.has_upgrade_read = false;
         self.nb_reads -= 1;
         // We don't wakeup anyone because the upgrade has priority.
     }
 
+    /// Wakeup waiters from back to front.
+    ///
+    /// If the mutex is unfair, notified entries are removed from the queue.
     fn wakeup_any_waiters(&mut self) {
         let mut filter = FilterWaiters {
             nb_waiting_reads: self.nb_waiting_reads,
@@ -302,7 +340,8 @@ impl MutexState {
         }
     }
 
-    /// Attempt to gain exclusive write access.
+    /// Attempt to gain exclusive write access by upgrading a upgradable_read
+    /// lock.
     ///
     /// Returns true if the access is obtained.
     fn try_upgrade_read_sync(&mut self) -> bool {
@@ -319,24 +358,28 @@ impl MutexState {
         }
     }
 
-    /// Add a read to the wait queue.
+    /// Add a read lock waiter to the wait queue.
     ///
     /// Safety: This function is only safe as long as `node` is guaranteed to
     /// get removed from the list before it gets moved or dropped.
     /// In addition to this `node` may not be added to another other list before
     /// it is removed from the current one.
-    unsafe fn add_read(&mut self, wait_node: &mut ListNode<Entry>) {
+    unsafe fn add_read_waiter(&mut self, wait_node: &mut ListNode<Entry>) {
         debug_assert_eq!(wait_node.kind, EntryKind::Read);
         self.waiters.add_front(wait_node);
         self.nb_waiting_reads += 1;
     }
 
-    /// Add a write to the wait queue.
+    /// Add a write lock waiter to the wait queue.
+    ///
+    /// If the write has priority, it will be added to the back instead
+    /// of the front, meaning it will wakeup first.
     ///
     /// Safety: This function is only safe as long as `node` is guaranteed to
     /// get removed from the list before it gets moved or dropped.
-    /// In addition to this `node` may not be added to another other list before it is removed from the current one.
-    unsafe fn add_write(
+    /// In addition to this `node` may not be added to another other list before
+    /// it is removed from the current one.
+    unsafe fn add_write_waiter(
         &mut self,
         wait_node: &mut ListNode<Entry>,
         has_priority: bool,
@@ -350,13 +393,16 @@ impl MutexState {
         self.nb_waiting_writes += 1;
     }
 
-    /// Add a write to the wait queue.
+    /// Add a upgradable_read lock waiter to the wait queue.
     ///
     /// Safety: This function is only safe as long as `node` is guaranteed to
     /// get removed from the list before it gets moved or dropped.
     /// In addition to this `node` may not be added to another other list before
     /// it is removed from the current one.
-    unsafe fn add_upgrade_read(&mut self, wait_node: &mut ListNode<Entry>) {
+    unsafe fn add_upgrade_read_waiter(
+        &mut self,
+        wait_node: &mut ListNode<Entry>,
+    ) {
         debug_assert_eq!(wait_node.kind, EntryKind::UpgradeRead);
         self.waiters.add_front(wait_node);
         self.nb_waiting_upgrade_reads += 1;
@@ -384,7 +430,7 @@ impl MutexState {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_read(wait_node);
+                    self.add_read_waiter(wait_node);
                     Poll::Pending
                 }
             }
@@ -439,7 +485,7 @@ impl MutexState {
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_read(wait_node);
+                    self.add_read_waiter(wait_node);
                     Poll::Pending
                 }
             }
@@ -473,7 +519,7 @@ impl MutexState {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_write(wait_node, has_priority);
+                    self.add_write_waiter(wait_node, has_priority);
                     Poll::Pending
                 }
             }
@@ -528,7 +574,7 @@ impl MutexState {
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_write(wait_node, has_priority);
+                    self.add_write_waiter(wait_node, has_priority);
                     Poll::Pending
                 }
             }
@@ -561,7 +607,7 @@ impl MutexState {
                     // Add the task to the wait queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_upgrade_read(wait_node);
+                    self.add_upgrade_read_waiter(wait_node);
                     Poll::Pending
                 }
             }
@@ -618,7 +664,7 @@ impl MutexState {
                     // Add to queue
                     wait_node.task = Some(cx.waker().clone());
                     wait_node.state = PollState::Waiting;
-                    self.add_upgrade_read(wait_node);
+                    self.add_upgrade_read_waiter(wait_node);
                     Poll::Pending
                 }
             }
@@ -665,7 +711,7 @@ impl MutexState {
         self.nb_waiting_upgrade_reads -= 1;
     }
 
-    /// Removes the read from the wait list.
+    /// Removes the read lock waiter from the wait list.
     ///
     /// This function is only safe as long as the reference that is passed here
     /// equals the reference/address under which the waiter was added.
@@ -702,7 +748,7 @@ impl MutexState {
         }
     }
 
-    /// Removes the write from the wait list.
+    /// Removes the write lock waiter from the wait list.
     ///
     /// This function is only safe as long as the reference that is passed here
     /// equals the reference/address under which the waiter was added.
@@ -739,7 +785,7 @@ impl MutexState {
         }
     }
 
-    /// Removes the upgrade_read from the wait list.
+    /// Removes the upgrade_read lock waiter from the wait list.
     ///
     /// This function is only safe as long as the reference that is passed here
     /// equals the reference/address under which the waiter was added.
@@ -1033,9 +1079,9 @@ impl<'a, MutexType: RawMutex, T> Drop
     }
 }
 
-/// An RAII guard returned by the `write` and `try_write` methods.
-/// When this structure is dropped (falls out of scope), the
-/// exclusive write access will be released.
+/// An RAII guard returned by the `upgradable_read` and `try_upgradable_read`
+/// methods. When this structure is dropped (falls out of scope), the
+/// shared read access and exclusive upgrade_read access will be released.
 pub struct GenericRwLockUpgradableReadGuard<'a, MutexType: RawMutex, T: 'a> {
     /// The Mutex which is associated with this Guard
     mutex: Option<&'a GenericRwLock<MutexType, T>>,
@@ -1044,7 +1090,7 @@ pub struct GenericRwLockUpgradableReadGuard<'a, MutexType: RawMutex, T: 'a> {
 impl<'a, MutexType: RawMutex, T>
     GenericRwLockUpgradableReadGuard<'a, MutexType, T>
 {
-    /// Asynchrousnly upgrade the shared read lock into an exclusive write lock.
+    /// Asynchrously upgrade the shared read lock into an exclusive write lock.
     pub fn upgrade(mut self) -> GenericRwLockWriteFuture<'a, MutexType, T> {
         let mutex = self.mutex.take().unwrap();
         let mut state = mutex.state.lock();
@@ -1057,8 +1103,8 @@ impl<'a, MutexType: RawMutex, T>
         }
     }
 
-    /// Atomically upgrade the shared read lock into an exclusive write lock,
-    /// blocking the current thread.
+    /// Attempt to atomically upgrade the shared read lock into an
+    /// exclusive write lock.
     pub fn try_upgrade(
         mut self,
     ) -> Result<GenericRwLockWriteGuard<'a, MutexType, T>, Self> {
@@ -1107,7 +1153,7 @@ unsafe impl<MutexType: RawMutex, T: Sync> Sync
 {
 }
 
-/// A future which resolves when exclusive write access has been successfully acquired.
+/// A future which resolves when upgrade_read lock access has been successfully acquired.
 #[must_use = "futures do nothing unless polled"]
 pub struct GenericRwLockUpgradableReadFuture<'a, MutexType: RawMutex, T: 'a> {
     /// The Mutex which should get locked trough this Future
@@ -1223,12 +1269,10 @@ impl<MutexType: RawMutex, T: core::fmt::Debug> core::fmt::Debug
 impl<MutexType: RawMutex, T> GenericRwLock<MutexType, T> {
     /// Creates a new futures-aware mutex.
     ///
-    /// `is_fair` defines whether the `Mutex` should behave be fair regarding the
-    /// order of waiters. A fair `Mutex` will only allow the first waiter which
-    /// tried to lock but failed to lock the `Mutex` once it's available again.
-    /// Other waiters must wait until either this locking attempt completes, and
-    /// the `Mutex` gets unlocked again, or until the `MutexLockFuture` which
-    /// tried to gain the lock is dropped.
+    /// `is_fair` defines whether the `RwLock` should behave be fair regarding the
+    /// order of waiters. A fair `RwLock` will respect the priority queue
+    /// so that older waiters will be prioritized over newer waiters
+    /// when polling to acquire their lock.
     pub fn new(value: T, is_fair: bool) -> GenericRwLock<MutexType, T> {
         GenericRwLock::<MutexType, T> {
             value: UnsafeCell::new(value),
@@ -1318,7 +1362,7 @@ impl<MutexType: RawMutex, T> GenericRwLock<MutexType, T> {
         }
     }
 
-    /// Returns whether the rwlock is locked in exclusive access.
+    /// Returns whether the `RwLock` is locked in exclusive access.
     pub fn is_exclusive(&self) -> bool {
         self.state.lock().has_write
     }
