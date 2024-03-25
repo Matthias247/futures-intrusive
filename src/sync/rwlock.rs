@@ -114,7 +114,11 @@ impl FilterWaiters {
             }
             EntryKind::UpgradeRead => {
                 if self.has_upgrade_read {
-                    ControlFlow::Continue
+                    if self.nb_waiting_reads > 0 {
+                        ControlFlow::Continue
+                    } else {
+                        ControlFlow::Stop
+                    }
                 } else {
                     entry.notify();
                     self.has_upgrade_read = true;
@@ -143,9 +147,9 @@ impl FilterWaiters {
                     } else {
                         ControlFlow::Stop
                     }
-                } else if self.nb_waiting_reads != 0
+                } else if self.nb_waiting_reads > 0
                     || (!self.has_upgrade_read
-                        && self.nb_waiting_upgrade_reads != 0)
+                        && self.nb_waiting_upgrade_reads > 0)
                 {
                     ControlFlow::Continue
                 } else {
@@ -190,26 +194,7 @@ impl MutexState {
     fn unlock_read(&mut self) {
         self.nb_reads -= 1;
         if self.nb_reads == 0 {
-            // Wakeup the next write in line.
-            if self.is_fair {
-                self.waiters.reverse_apply_while(|entry| {
-                    if let EntryKind::Write = entry.kind {
-                        entry.notify();
-                        ControlFlow::Stop
-                    } else {
-                        ControlFlow::Continue
-                    }
-                });
-            } else {
-                self.waiters.reverse_apply_while(|entry| {
-                    if let EntryKind::Write = entry.kind {
-                        entry.notify();
-                        ControlFlow::RemoveAndStop
-                    } else {
-                        ControlFlow::Continue
-                    }
-                });
-            };
+            self.wakeup_any_waiters();
         }
     }
 
@@ -707,7 +692,7 @@ impl MutexState {
                 wait_node.state = PollState::Done;
                 // Since the task was notified but did not lock the Mutex,
                 // another task gets the chance to run.
-                self.unlock_read();
+                self.wakeup_any_waiters();
             }
             PollState::Waiting => {
                 // Remove the Entry from the linked list
@@ -744,7 +729,7 @@ impl MutexState {
                 wait_node.state = PollState::Done;
                 // Since the task was notified but did not lock the Mutex,
                 // another task gets the chance to run.
-                self.unlock_write();
+                self.wakeup_any_waiters();
             }
             PollState::Waiting => {
                 // Remove the Entry from the linked list
@@ -781,7 +766,7 @@ impl MutexState {
                 wait_node.state = PollState::Done;
                 // Since the task was notified but did not lock the Mutex,
                 // another task gets the chance to run.
-                self.unlock_upgrade_read();
+                self.wakeup_any_waiters();
             }
             PollState::Waiting => {
                 // Remove the Entry from the linked list

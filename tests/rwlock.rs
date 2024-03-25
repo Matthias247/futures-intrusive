@@ -489,6 +489,10 @@ macro_rules! gen_rwlock_tests {
                         Poll::Pending => panic!("busy rwlock"),
                         Poll::Ready(mut guard) => guard,
                     };
+                    let guard4 = match read_fut3.as_mut().poll(cx) {
+                        Poll::Pending => panic!("busy rwlock"),
+                        Poll::Ready(mut guard) => guard,
+                    };
                     match upgrade_read_fut2.as_mut().poll(cx) {
                         Poll::Pending => (),
                         Poll::Ready(mut guard) => panic!("busy rwlock"),
@@ -502,15 +506,15 @@ macro_rules! gen_rwlock_tests {
                         Poll::Ready(mut guard) => panic!("busy rwlock"),
                     };
 
-                    assert_eq!(count, 3);
-
-                    drop(guard1);
-                    assert_eq!(count, 3);
-
-                    drop(guard3);
                     assert_eq!(count, 4);
 
-                    let guard4 = match upgrade_read_fut2.as_mut().poll(cx) {
+                    drop(guard1);
+                    assert_eq!(count, 4);
+
+                    drop(guard3);
+                    assert_eq!(count, 5);
+
+                    let guard5 = match upgrade_read_fut2.as_mut().poll(cx) {
                         Poll::Pending => panic!("busy rwlock"),
                         Poll::Ready(mut guard) => guard,
                     };
@@ -524,11 +528,13 @@ macro_rules! gen_rwlock_tests {
                     };
 
                     drop(guard2);
-                    assert_eq!(count, 4);
-                    drop(guard4);
                     assert_eq!(count, 5);
+                    drop(guard5);
+                    assert_eq!(count, 5);
+                    drop(guard4);
+                    assert_eq!(count, 6);
 
-                    let guard5 = match write_fut1.as_mut().poll(cx) {
+                    let guard6 = match write_fut1.as_mut().poll(cx) {
                         Poll::Pending => panic!("busy rwlock"),
                         Poll::Ready(mut guard) => guard,
                     };
@@ -537,14 +543,14 @@ macro_rules! gen_rwlock_tests {
                         Poll::Ready(mut guard) => panic!("busy rwlock"),
                     };
 
-                    drop(guard5);
-                    assert_eq!(count, 6);
+                    drop(guard6);
+                    assert_eq!(count, 7);
 
                     match write_fut2.as_mut().poll(cx) {
                         Poll::Pending => panic!("busy rwlock"),
                         Poll::Ready(mut guard) => (),
                     };
-                    assert_eq!(count, 6);
+                    assert_eq!(count, 7);
                 }
             }
         }
