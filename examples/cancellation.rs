@@ -269,7 +269,7 @@ fn main() {
     let cloned_token = cancellation_token.clone(); // Clone for the background thread
     std::thread::spawn(move || {
         let term = Arc::new(AtomicBool::new(false));
-        signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term))
+        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term))
             .unwrap();
         while !term.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(100));
