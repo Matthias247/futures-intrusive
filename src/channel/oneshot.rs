@@ -199,7 +199,7 @@ impl<MutexType: RawMutex, T> GenericOneshotChannel<MutexType, T> {
 
     /// Returns a future that gets fulfilled when a value is written to the channel
     /// or the channel is closed.
-    pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
+    pub fn receive(&self) -> ChannelReceiveFuture<'_, MutexType, T> {
         ChannelReceiveFuture {
             channel: Some(self),
             wait_node: ListNode::new(RecvWaitQueueEntry::new()),

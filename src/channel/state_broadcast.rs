@@ -386,7 +386,7 @@ where
     pub fn receive(
         &self,
         state_id: StateId,
-    ) -> StateReceiveFuture<MutexType, T> {
+    ) -> StateReceiveFuture<'_, MutexType, T> {
         StateReceiveFuture {
             channel: Some(self),
             wait_node: ListNode::new(RecvWaitQueueEntry::new(state_id)),

@@ -191,11 +191,11 @@ trait TimerAccess {
 /// or until the provided [`Clock`] reaches a certain timestamp.
 pub trait LocalTimer {
     /// Returns a future that gets fulfilled after the given `Duration`
-    fn delay(&self, delay: Duration) -> LocalTimerFuture;
+    fn delay(&self, delay: Duration) -> LocalTimerFuture<'_>;
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
     /// the given timestamp.
-    fn deadline(&self, timestamp: u64) -> LocalTimerFuture;
+    fn deadline(&self, timestamp: u64) -> LocalTimerFuture<'_>;
 }
 
 /// An asynchronously awaitable thread-safe timer.
@@ -207,11 +207,11 @@ pub trait LocalTimer {
 /// or until the provided [`Clock`] reaches a certain timestamp.
 pub trait Timer {
     /// Returns a future that gets fulfilled after the given `Duration`
-    fn delay(&self, delay: Duration) -> TimerFuture;
+    fn delay(&self, delay: Duration) -> TimerFuture<'_>;
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
     /// the given timestamp.
-    fn deadline(&self, timestamp: u64) -> TimerFuture;
+    fn deadline(&self, timestamp: u64) -> TimerFuture<'_>;
 }
 
 /// An asynchronously awaitable timer.
@@ -295,14 +295,14 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
 
 impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
     /// Returns a future that gets fulfilled after the given [`Duration`]
-    fn delay(&self, delay: Duration) -> LocalTimerFuture {
+    fn delay(&self, delay: Duration) -> LocalTimerFuture<'_> {
         let deadline = self.deadline_from_now(delay);
         LocalTimer::deadline(&*self, deadline)
     }
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
     /// the given timestamp.
-    fn deadline(&self, timestamp: u64) -> LocalTimerFuture {
+    fn deadline(&self, timestamp: u64) -> LocalTimerFuture<'_> {
         LocalTimerFuture {
             timer: Some(self),
             wait_node: HeapNode::new(TimerQueueEntry::new(timestamp)),
@@ -315,14 +315,14 @@ where
     MutexType: Sync,
 {
     /// Returns a future that gets fulfilled after the given [`Duration`]
-    fn delay(&self, delay: Duration) -> TimerFuture {
+    fn delay(&self, delay: Duration) -> TimerFuture<'_> {
         let deadline = self.deadline_from_now(delay);
         Timer::deadline(&*self, deadline)
     }
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
     /// the given timestamp.
-    fn deadline(&self, timestamp: u64) -> TimerFuture {
+    fn deadline(&self, timestamp: u64) -> TimerFuture<'_> {
         TimerFuture {
             timer_future: LocalTimerFuture {
                 timer: Some(self),

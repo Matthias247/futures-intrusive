@@ -197,7 +197,7 @@ impl<MutexType: RawMutex> GenericManualResetEvent<MutexType> {
     }
 
     /// Returns a future that gets fulfilled when the event is set.
-    pub fn wait(&self) -> GenericWaitForEventFuture<MutexType> {
+    pub fn wait(&self) -> GenericWaitForEventFuture<'_, MutexType> {
         GenericWaitForEventFuture {
             event: Some(self),
             wait_node: ListNode::new(WaitQueueEntry::new()),
