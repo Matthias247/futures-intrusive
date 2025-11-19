@@ -207,7 +207,7 @@ where
     /// Writes a single value to the channel.
     /// If the maximum amount of values had been written, the new value will be rejected.
     fn send(&mut self, value: T) -> Result<(), ChannelSendError<T>> {
-        if self.is_closed || self.state_id.0 == core::u64::MAX {
+        if self.is_closed || self.state_id.0 == u64::MAX {
             return Err(ChannelSendError(value));
         }
 
@@ -350,9 +350,7 @@ where
     where
         T: Clone,
     {
-        GenericStateBroadcastChannel {
-            inner: Mutex::new(ChannelState::new()),
-        }
+        Self::default()
     }
 
     /// Writes a single value to the channel.
@@ -419,6 +417,18 @@ impl<MutexType: RawMutex, T: Clone> ChannelReceiveAccess<T>
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
     ) {
         self.inner.lock().remove_waiter(wait_node)
+    }
+}
+
+impl<MutexType: RawMutex, T> Default
+    for GenericStateBroadcastChannel<MutexType, T>
+where
+    T: Clone,
+{
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(ChannelState::new()),
+        }
     }
 }
 
@@ -632,7 +642,7 @@ mod if_alloc {
             fn clone(&self) -> Self {
                 let old_size =
                     self.inner.senders.fetch_add(1, Ordering::Relaxed);
-                if old_size > (core::isize::MAX) as usize {
+                if old_size > (isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
                 GenericStateSender {
@@ -665,7 +675,7 @@ mod if_alloc {
             fn clone(&self) -> Self {
                 let old_size =
                     self.inner.receivers.fetch_add(1, Ordering::Relaxed);
-                if old_size > (core::isize::MAX) as usize {
+                if old_size > (isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
                 GenericStateReceiver {

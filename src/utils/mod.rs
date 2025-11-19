@@ -7,7 +7,7 @@ use core::task::{Context, Waker};
 pub fn update_waker_ref(waker_option: &mut Option<Waker>, cx: &Context) {
     if waker_option
         .as_ref()
-        .map_or(true, |stored_waker| !stored_waker.will_wake(cx.waker()))
+        .is_none_or(|stored_waker| !stored_waker.will_wake(cx.waker()))
     {
         *waker_option = Some(cx.waker().clone());
     }

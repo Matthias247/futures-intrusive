@@ -61,7 +61,7 @@ impl EventState {
     }
 
     fn set(&mut self) {
-        if self.is_set != true {
+        if !self.is_set {
             self.is_set = true;
 
             // Wakeup all waiters

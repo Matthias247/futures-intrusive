@@ -36,27 +36,27 @@
 //!
 //! Graceful cancellation is implemented in 3 steps:
 //! 1. Signalling the cancellation: One component signals the sub-tasks that they
-//!   should stop their work as soon as it is convenient for them. The
-//!   cancellation signal can either originate from a parent task, the sub task
-//!   itself, or one of the sibling tasks. In order to distribute cancellation
-//!   signals we utilize an async `ManualResetEvent` as a cancellation token.
-//!   This datastructure allows to signal an arbitrary amount of tasks.
-//!   The signal can be emitted by any component which has access to
-//!   `ManualResetEvent`.
+//!    should stop their work as soon as it is convenient for them. The
+//!    cancellation signal can either originate from a parent task, the sub task
+//!    itself, or one of the sibling tasks. In order to distribute cancellation
+//!    signals we utilize an async `ManualResetEvent` as a cancellation token.
+//!    This datastructure allows to signal an arbitrary amount of tasks.
+//!    The signal can be emitted by any component which has access to
+//!    `ManualResetEvent`.
 //! 2. Detecting the signal inside sub-tasks and shutting down. In order to
-//!   support graceful cancellation, subtasks need to detect the condition that
-//!   they are supposed to shut down. In order to do this we use the futures-rs
-//!   `select!` macro to wait in parallel for either the async calculation on
-//!   the "normal path" to complete or for the cancellation to get signalled.
-//!   Not all subtasks have to explicitly support this. Some of them just need
-//!   to forward the cancellation token to their child tasks. When these finish
-//!   early due to cancellation, then the parent will also finish early.
-//!   Child tasks can return an error result in order to indicate that they have
-//!   returned due the explicit cancellation. E.g. `Err(Cancelled)` could be
-//!   returned to the parent.
+//!    support graceful cancellation, subtasks need to detect the condition that
+//!    they are supposed to shut down. In order to do this we use the futures-rs
+//!    `select!` macro to wait in parallel for either the async calculation on
+//!    the "normal path" to complete or for the cancellation to get signalled.
+//!    Not all subtasks have to explicitly support this. Some of them just need
+//!    to forward the cancellation token to their child tasks. When these finish
+//!    early due to cancellation, then the parent will also finish early.
+//!    Child tasks can return an error result in order to indicate that they have
+//!    returned due the explicit cancellation. E.g. `Err(Cancelled)` could be
+//!    returned to the parent.
 //! 3. The parent tasks waits for all sub-tasks to shut down, via waiting on
-//!   their wait-handles (which in our case are `Future`s that can be awaited
-//!   via `await` or various `join` functions).
+//!    their wait-handles (which in our case are `Future`s that can be awaited
+//!    via `await` or various `join` functions).
 //!
 //! After these steps have completed all sub tasks of a given parent have
 //! completed and the parent task can also finish. It can thereby return the
@@ -86,7 +86,6 @@ use futures_intrusive::{
     timer::{StdClock, Timer, TimerService},
 };
 use lazy_static::lazy_static;
-use signal_hook;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -171,7 +170,7 @@ async fn producer_task(
     for value in 1..max {
         select! {
             result = channel.send(value) => {
-                if !result.is_ok() {
+                if result.is_err() {
                     unreachable!("This can not happen in this example");
                 }
             },
@@ -279,7 +278,7 @@ fn main() {
     });
 
     // Start our async task. This gets the cancellation token passed as argument
-    let result = block_on(fizzbuzz_search(std::usize::MAX, cancellation_token));
+    let result = block_on(fizzbuzz_search(usize::MAX, cancellation_token));
     // At this point in time, the task has finished - either due to running to
     // completion or due to being cancelled. The task can return results in both
     // situations.

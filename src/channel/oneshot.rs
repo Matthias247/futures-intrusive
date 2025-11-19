@@ -172,9 +172,7 @@ impl<MutexType: RawMutex, T> core::fmt::Debug
 impl<MutexType: RawMutex, T> GenericOneshotChannel<MutexType, T> {
     /// Creates a new OneshotChannel in the given state
     pub fn new() -> GenericOneshotChannel<MutexType, T> {
-        GenericOneshotChannel {
-            inner: Mutex::new(ChannelState::new()),
-        }
+        Self::default()
     }
 
     /// Writes a single value to the channel.
@@ -224,6 +222,14 @@ impl<MutexType: RawMutex, T> ChannelReceiveAccess<T>
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
     ) {
         self.inner.lock().remove_waiter(wait_node)
+    }
+}
+
+impl<MutexType: RawMutex, T> Default for GenericOneshotChannel<MutexType, T> {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(ChannelState::new()),
+        }
     }
 }
 

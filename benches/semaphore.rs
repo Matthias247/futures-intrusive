@@ -9,7 +9,6 @@ use tokio::sync::{
     Semaphore as TokioSemaphore, SemaphorePermit as TokioSemaphorePermit,
 };
 
-use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,12 +29,6 @@ const UNCONTENDED_PERMITS: usize = TASKS;
 
 /// The number of yields we perform after the Semaphore was acquired
 const NR_YIELDS: usize = 4;
-
-/// Extension trait to add support for `block_on` for runtimes which not
-/// natively support it as member function
-trait Block {
-    fn block_on<F: Future<Output = ()>>(&self, f: F);
-}
 
 fn create_intrusive_fair_semaphore(permits: usize) -> IntrusiveSemaphore {
     IntrusiveSemaphore::new(true, permits)

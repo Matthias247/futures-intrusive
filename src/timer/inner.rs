@@ -62,8 +62,7 @@ impl PartialOrd for TimerQueueEntry {
         &self,
         other: &TimerQueueEntry,
     ) -> Option<core::cmp::Ordering> {
-        // Compare timer queue entries by expiration time
-        self.expiry.partial_cmp(&other.expiry)
+        Some(self.cmp(other))
     }
 }
 
@@ -288,7 +287,7 @@ impl<MutexType: RawMutex> GenericTimerService<MutexType> {
     fn deadline_from_now(&self, duration: Duration) -> u64 {
         let now = self.inner.lock().clock.now();
         let duration_ms =
-            core::cmp::min(duration.as_millis(), core::u64::MAX as u128) as u64;
+            core::cmp::min(duration.as_millis(), u64::MAX as u128) as u64;
         now.saturating_add(duration_ms)
     }
 }
@@ -297,7 +296,7 @@ impl<MutexType: RawMutex> LocalTimer for GenericTimerService<MutexType> {
     /// Returns a future that gets fulfilled after the given [`Duration`]
     fn delay(&self, delay: Duration) -> LocalTimerFuture<'_> {
         let deadline = self.deadline_from_now(delay);
-        LocalTimer::deadline(&*self, deadline)
+        LocalTimer::deadline(self, deadline)
     }
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches
@@ -317,7 +316,7 @@ where
     /// Returns a future that gets fulfilled after the given [`Duration`]
     fn delay(&self, delay: Duration) -> TimerFuture<'_> {
         let deadline = self.deadline_from_now(delay);
-        Timer::deadline(&*self, deadline)
+        Timer::deadline(self, deadline)
     }
 
     /// Returns a future that gets fulfilled when the utilized [`Clock`] reaches

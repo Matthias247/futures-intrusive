@@ -451,7 +451,7 @@ impl<MutexType: RawMutex, T> GenericMutex<MutexType, T> {
     /// successfully acquired.
     pub fn lock(&self) -> GenericMutexLockFuture<'_, MutexType, T> {
         GenericMutexLockFuture::<MutexType, T> {
-            mutex: Some(&self),
+            mutex: Some(self),
             wait_node: ListNode::new(WaitQueueEntry::new()),
         }
     }

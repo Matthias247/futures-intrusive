@@ -19,18 +19,12 @@ pub enum CloseStatus {
 impl CloseStatus {
     /// Returns whether the value is the `NewlyClosed` variant.
     pub fn is_newly_closed(self) -> bool {
-        match self {
-            Self::NewlyClosed => true,
-            _ => false,
-        }
+        matches!(self, Self::NewlyClosed)
     }
 
     /// Returns whether the value is the `AlreadyClosed` variant.
     pub fn is_already_closed(self) -> bool {
-        match self {
-            Self::AlreadyClosed => true,
-            _ => false,
-        }
+        matches!(self, Self::AlreadyClosed)
     }
 }
 

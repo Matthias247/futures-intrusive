@@ -146,7 +146,7 @@ fn futchan_bounded_variable_tx_single_thread(producers: usize) {
 
     block_on(async {
         let (tx, mut rx) = futures::channel::mpsc::channel(CHANNEL_BUFFER_SIZE);
-        let produce_done = join_all((0..producers).into_iter().map(|_| {
+        let produce_done = join_all((0..producers).map(|_| {
             let mut tx = tx.clone();
             async move {
                 for _i in 0..elems_per_producer {
@@ -177,7 +177,7 @@ fn tokiochan_bounded_variable_tx_single_thread(producers: usize) {
 
     block_on(async {
         let (tx, mut rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER_SIZE);
-        let produce_done = join_all((0..producers).into_iter().map(|_| {
+        let produce_done = join_all((0..producers).map(|_| {
             let tx = tx.clone();
             async move {
                 for _i in 0..elems_per_producer {
@@ -257,7 +257,7 @@ fn intrusive_local_chan_bounded_variable_tx_single_thread(producers: usize) {
 
     block_on(async {
         let rx = LocalChannel::<i32, [i32; CHANNEL_BUFFER_SIZE]>::new();
-        let produce_done = join_all((0..producers).into_iter().map(|_| {
+        let produce_done = join_all((0..producers).map(|_| {
             Box::pin(async {
                 for _i in 0..elems_per_producer {
                     let r = rx.send(4).await;

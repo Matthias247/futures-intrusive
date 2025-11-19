@@ -49,7 +49,7 @@ impl MockClock {
 
     /// Sets the current timestamp inside to [`MockClock`] to the given value
     pub fn set_time(&self, timestamp: u64) {
-        if timestamp > (core::usize::MAX as u64) {
+        if timestamp > (usize::MAX as u64) {
             panic!("timestamps bigger than usize::MAX are not supported")
         }
         let to_set = timestamp as usize;
@@ -60,6 +60,12 @@ impl MockClock {
 impl Clock for MockClock {
     fn now(&self) -> u64 {
         self.now.load(Ordering::Relaxed) as u64
+    }
+}
+
+impl Default for MockClock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -83,9 +89,7 @@ mod if_std {
     impl StdClock {
         /// Creates a new [`StdClock`]
         pub fn new() -> StdClock {
-            StdClock {
-                start: Instant::now(),
-            }
+            Self::default()
         }
     }
 
@@ -93,6 +97,14 @@ mod if_std {
         fn now(&self) -> u64 {
             let elapsed = Instant::now() - self.start;
             elapsed.as_millis() as u64
+        }
+    }
+
+    impl Default for StdClock {
+        fn default() -> Self {
+            Self {
+                start: Instant::now(),
+            }
         }
     }
 }
