@@ -484,7 +484,7 @@ impl<MutexType: RawMutex> GenericSemaphore<MutexType> {
         nr_permits: usize,
     ) -> GenericSemaphoreAcquireFuture<'_, MutexType> {
         GenericSemaphoreAcquireFuture::<MutexType> {
-            semaphore: Some(&self),
+            semaphore: Some(self),
             wait_node: ListNode::new(WaitQueueEntry::new(nr_permits)),
             auto_release: true,
         }

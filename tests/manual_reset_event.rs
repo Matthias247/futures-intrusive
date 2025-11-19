@@ -190,8 +190,7 @@ mod if_std {
     fn multithreaded_smoke() {
         let event = Arc::new(ManualResetEvent::new(false));
 
-        let waiters: Vec<thread::JoinHandle<time::Instant>> = [1..4]
-            .iter()
+        let waiters = (1..4)
             .map(|_| {
                 let ev = event.clone();
                 thread::spawn(move || {
@@ -199,7 +198,7 @@ mod if_std {
                     time::Instant::now()
                 })
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         let start = time::Instant::now();
 

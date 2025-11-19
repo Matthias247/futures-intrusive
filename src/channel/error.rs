@@ -20,18 +20,12 @@ pub enum TryReceiveError {
 impl TryReceiveError {
     /// Returns whether the error is the `Empty` variant.
     pub fn is_empty(self) -> bool {
-        match self {
-            Self::Empty => true,
-            _ => false,
-        }
+        matches!(self, Self::Empty)
     }
 
     /// Returns whether the error is the `Closed` variant.
     pub fn is_closed(self) -> bool {
-        match self {
-            Self::Closed => true,
-            _ => false,
-        }
+        matches!(self, Self::Closed)
     }
 }
 
@@ -56,17 +50,11 @@ impl<T> TrySendError<T> {
 
     /// Returns whether the error is the `WouldBlock` variant.
     pub fn is_full(&self) -> bool {
-        match self {
-            Self::Full(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Full(_))
     }
 
     /// Returns whether the error is the `Closed` variant.
     pub fn is_closed(&self) -> bool {
-        match self {
-            Self::Closed(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Closed(_))
     }
 }

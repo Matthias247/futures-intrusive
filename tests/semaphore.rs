@@ -591,7 +591,7 @@ mod if_std {
             is_send(&wait_fut);
 
             let waker = &panic_waker();
-            let cx = &mut Context::from_waker(&waker);
+            let cx = &mut Context::from_waker(waker);
             pin_mut!(wait_fut);
             let res = wait_fut.poll_unpin(cx);
             let releaser = match res {

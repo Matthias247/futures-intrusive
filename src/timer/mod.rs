@@ -11,12 +11,12 @@ pub use self::clock::{Clock, MockClock};
 #[cfg(feature = "std")]
 pub use self::clock::StdClock;
 
-mod timer;
+mod inner;
 
-pub use self::timer::{
+pub use self::inner::{
     GenericTimerService, LocalTimer, LocalTimerFuture, LocalTimerService,
     Timer, TimerFuture,
 };
 
 #[cfg(feature = "std")]
-pub use self::timer::TimerService;
+pub use self::inner::TimerService;

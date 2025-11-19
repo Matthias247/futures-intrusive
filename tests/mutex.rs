@@ -461,7 +461,7 @@ mod if_std {
             is_send(&lock_fut);
 
             let waker = &panic_waker();
-            let cx = &mut Context::from_waker(&waker);
+            let cx = &mut Context::from_waker(waker);
             pin_mut!(lock_fut);
             let res = lock_fut.poll_unpin(cx);
             let guard = match res {

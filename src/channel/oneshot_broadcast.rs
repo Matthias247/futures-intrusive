@@ -179,9 +179,7 @@ where
 {
     /// Creates a new OneshotBroadcastChannel in the given state
     pub fn new() -> GenericOneshotBroadcastChannel<MutexType, T> {
-        GenericOneshotBroadcastChannel {
-            inner: Mutex::new(ChannelState::new()),
-        }
+        Self::default()
     }
 
     /// Writes a single value to the channel.
@@ -233,6 +231,18 @@ where
         wait_node: &mut ListNode<RecvWaitQueueEntry>,
     ) {
         self.inner.lock().remove_waiter(wait_node)
+    }
+}
+
+impl<MutexType: RawMutex, T> Default
+    for GenericOneshotBroadcastChannel<MutexType, T>
+where
+    T: Clone,
+{
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(ChannelState::new()),
+        }
     }
 }
 

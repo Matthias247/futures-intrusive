@@ -162,7 +162,7 @@ where
                     // Return the oldest receive waiter
                     let waker =
                         return_oldest_receive_waiter(&mut self.receive_waiters);
-                    return (Poll::Pending, None, waker);
+                    (Poll::Pending, None, waker)
                 } else {
                     // Otherwise copy the value directly into the channel
                     let value = wait_node
@@ -406,9 +406,7 @@ where
     /// Creates a new Channel, utilizing the default capacity that
     /// the RingBuffer in `A` provides.
     pub fn new() -> Self {
-        GenericChannel {
-            inner: Mutex::new(ChannelState::new(A::new())),
-        }
+        Self::default()
     }
 
     /// Creates a new Channel, which has storage for a `capacity` items.
@@ -560,6 +558,17 @@ where
 
         if let Some(waker) = waker {
             waker.wake();
+        }
+    }
+}
+
+impl<MutexType: RawMutex, T, A> Default for GenericChannel<MutexType, T, A>
+where
+    A: RingBuf<Item = T>,
+{
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(ChannelState::new(A::new())),
         }
     }
 }
@@ -807,7 +816,7 @@ mod if_alloc {
             fn clone(&self) -> Self {
                 let old_size =
                     self.inner.senders.fetch_add(1, Ordering::Relaxed);
-                if old_size > (core::isize::MAX) as usize {
+                if old_size > (isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
                 GenericSender {
@@ -840,7 +849,7 @@ mod if_alloc {
             fn clone(&self) -> Self {
                 let old_size =
                     self.inner.receivers.fetch_add(1, Ordering::Relaxed);
-                if old_size > (core::isize::MAX) as usize {
+                if old_size > (isize::MAX) as usize {
                     panic!("Reached maximum refcount");
                 }
                 GenericReceiver {

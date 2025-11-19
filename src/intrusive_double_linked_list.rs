@@ -71,9 +71,8 @@ impl<T> LinkedList<T> {
     pub unsafe fn add_front(&mut self, node: &mut ListNode<T>) {
         node.next = self.head;
         node.prev = None;
-        match self.head {
-            Some(mut head) => head.as_mut().prev = Some(node.into()),
-            None => {}
+        if let Some(mut head) = self.head {
+            head.as_mut().prev = Some(node.into())
         };
         self.head = Some(node.into());
         if self.tail.is_none() {
@@ -203,7 +202,7 @@ impl<T> LinkedList<T> {
 
     /// Returns whether the linked list doesn not contain any node
     pub fn is_empty(&self) -> bool {
-        if !self.head.is_none() {
+        if self.head.is_some() {
             return false;
         }
 
@@ -366,10 +365,10 @@ mod tests {
             let mut c = ListNode::new(31);
 
             let mut setup = |list: &mut LinkedList<i32>| {
-                assert_eq!(true, list.is_empty());
+                assert!(list.is_empty());
                 list.add_front(&mut c);
                 assert_eq!(31, **list.peek_first().unwrap());
-                assert_eq!(false, list.is_empty());
+                assert!(!list.is_empty());
                 list.add_front(&mut b);
                 assert_eq!(7, **list.peek_first().unwrap());
                 list.add_front(&mut a);
@@ -559,10 +558,10 @@ mod tests {
                 // Remove first
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut a));
-                assert_clean((&mut a).into());
+                assert!(list.remove(&mut a));
+                assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
-                assert_eq!(false, list.remove(&mut a));
+                assert!(!list.remove(&mut a));
                 assert_eq!(Some((&mut b).into()), list.head);
                 assert_eq!(Some((&mut c).into()), b.next);
                 assert_eq!(Some((&mut b).into()), c.prev);
@@ -571,10 +570,10 @@ mod tests {
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut a));
-                assert_clean((&mut a).into());
+                assert!(list.remove(&mut a));
+                assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
-                assert_eq!(false, list.remove(&mut a));
+                assert!(!list.remove(&mut a));
                 assert_eq!(Some((&mut c).into()), b.next);
                 assert_eq!(Some((&mut b).into()), c.prev);
                 let items: Vec<i32> = collect_reverse_list(list);
@@ -585,8 +584,8 @@ mod tests {
                 // Remove middle
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut b));
-                assert_clean((&mut b).into());
+                assert!(list.remove(&mut b));
+                assert_clean(&mut b);
                 assert_eq!(Some((&mut c).into()), a.next);
                 assert_eq!(Some((&mut a).into()), c.prev);
                 let items: Vec<i32> = collect_list(list);
@@ -594,8 +593,8 @@ mod tests {
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut b));
-                assert_clean((&mut b).into());
+                assert!(list.remove(&mut b));
+                assert_clean(&mut b);
                 assert_eq!(Some((&mut c).into()), a.next);
                 assert_eq!(Some((&mut a).into()), c.prev);
                 let items: Vec<i32> = collect_reverse_list(list);
@@ -606,8 +605,8 @@ mod tests {
                 // Remove last
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut c));
-                assert_clean((&mut c).into());
+                assert!(list.remove(&mut c));
+                assert_clean(&mut c);
                 assert!(b.next.is_none());
                 assert_eq!(Some((&mut b).into()), list.tail);
                 let items: Vec<i32> = collect_list(list);
@@ -615,8 +614,8 @@ mod tests {
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut c, &mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut c));
-                assert_clean((&mut c).into());
+                assert!(list.remove(&mut c));
+                assert_clean(&mut c);
                 assert!(b.next.is_none());
                 assert_eq!(Some((&mut b).into()), list.tail);
                 let items: Vec<i32> = collect_reverse_list(list);
@@ -627,10 +626,10 @@ mod tests {
                 // Remove first of two
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut a));
-                assert_clean((&mut a).into());
+                assert!(list.remove(&mut a));
+                assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
-                assert_eq!(false, list.remove(&mut a));
+                assert!(!list.remove(&mut a));
                 assert_eq!(Some((&mut b).into()), list.head);
                 assert_eq!(Some((&mut b).into()), list.tail);
                 assert!(b.next.is_none());
@@ -640,10 +639,10 @@ mod tests {
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut a));
-                assert_clean((&mut a).into());
+                assert!(list.remove(&mut a));
+                assert_clean(&mut a);
                 // a should be no longer there and can't be removed twice
-                assert_eq!(false, list.remove(&mut a));
+                assert!(!list.remove(&mut a));
                 assert_eq!(Some((&mut b).into()), list.head);
                 assert_eq!(Some((&mut b).into()), list.tail);
                 assert!(b.next.is_none());
@@ -656,8 +655,8 @@ mod tests {
                 // Remove last of two
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut b));
-                assert_clean((&mut b).into());
+                assert!(list.remove(&mut b));
+                assert_clean(&mut b);
                 assert_eq!(Some((&mut a).into()), list.head);
                 assert_eq!(Some((&mut a).into()), list.tail);
                 assert!(a.next.is_none());
@@ -667,8 +666,8 @@ mod tests {
 
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut b, &mut a]);
-                assert_eq!(true, list.remove(&mut b));
-                assert_clean((&mut b).into());
+                assert!(list.remove(&mut b));
+                assert_clean(&mut b);
                 assert_eq!(Some((&mut a).into()), list.head);
                 assert_eq!(Some((&mut a).into()), list.tail);
                 assert!(a.next.is_none());
@@ -681,8 +680,8 @@ mod tests {
                 // Remove last item
                 let mut list = LinkedList::new();
                 add_nodes(&mut list, &mut [&mut a]);
-                assert_eq!(true, list.remove(&mut a));
-                assert_clean((&mut a).into());
+                assert!(list.remove(&mut a));
+                assert_clean(&mut a);
                 assert!(list.head.is_none());
                 assert!(list.tail.is_none());
                 let items: Vec<i32> = collect_list(list);
@@ -694,7 +693,7 @@ mod tests {
                 let mut list = LinkedList::new();
                 list.add_front(&mut b);
                 list.add_front(&mut a);
-                assert_eq!(false, list.remove(&mut c));
+                assert!(!list.remove(&mut c));
             }
         }
     }

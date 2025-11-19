@@ -8,6 +8,13 @@
 /// of `RealArray` for arrays up to length 64, as well as for all powers of 2
 /// up to 64k.
 ///
+/// # Safety
+///
+/// It is unclear at this time which invariants must be upheld by types implementing this trait
+/// in order to avoid unsoundness in types that depend on the trait.
+///
+/// # Custom implementations
+///
 /// In order to let the library accept arrays of bigger sizes, `RealArray` can
 /// be implemented by users via newtypes. A type as defined in the following
 /// example can be passed to the library:
@@ -33,10 +40,7 @@
 ///     }
 /// }
 ///
-/// fn main() {
-///     let channel = LocalChannel::<i32, I32x384Array>::new();
-/// }
-///
+/// let channel = LocalChannel::<i32, I32x384Array>::new();
 /// ```
 pub unsafe trait RealArray<T> {
     /// The length of the array
