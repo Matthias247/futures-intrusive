@@ -40,9 +40,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --no-default-features -- -D warnings -A deprecated
-      - run: cargo clippy --all-targets -- -D warnings -A deprecated
-      - run: cargo clippy --all-targets --all-features -- -D warnings -A deprecated
+      - run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets --all-features -- -D warnings
 
   semver:
     name: Check semver compatibility

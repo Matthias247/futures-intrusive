@@ -1,13 +1,12 @@
 //! Benchmarks for asynchronous Mutex implementations
-
-use async_std::{sync::Mutex as AsyncStdMutex, task};
-use criterion::{criterion_group, criterion_main, Benchmark, Criterion};
-use futures_intrusive::sync::{Mutex as IntrusiveMutex, Semaphore};
-use tokio::sync::Mutex as TokioMutex;
-
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
+
+use async_std::{sync::Mutex as AsyncStdMutex, task};
+use criterion::{criterion_group, criterion_main, Criterion};
+use futures_intrusive::sync::{Mutex as IntrusiveMutex, Semaphore};
+use tokio::sync::Mutex as TokioMutex;
 
 mod utils;
 use utils::Yield;
@@ -118,9 +117,9 @@ macro_rules! benchmarks {
         $rt_name: literal, $rt_setup: expr, $spawn_fn: expr,
         $mutex_name: literal, $mutex_constructor: expr
     ) => {
-        $c.bench(
-            concat!($rt_name, "/", $mutex_name),
-            Benchmark::new("contention", |b| {
+        let mut group = $c.benchmark_group(concat!($rt_name, "/", $mutex_name));
+        group
+            .bench_function("contention", |b| {
                 contention!(
                     b,
                     $rt_setup,
@@ -129,7 +128,7 @@ macro_rules! benchmarks {
                     ITERATIONS
                 );
             })
-            .with_function("no_contention", |b| {
+            .bench_function("no_contention", |b| {
                 no_contention!(
                     b,
                     $rt_setup,
@@ -137,8 +136,8 @@ macro_rules! benchmarks {
                     $mutex_constructor,
                     ITERATIONS
                 );
-            }),
-        );
+            });
+        group.finish();
     };
 }
 

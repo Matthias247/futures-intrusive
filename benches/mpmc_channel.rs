@@ -1,14 +1,12 @@
-use criterion::{
-    criterion_group, criterion_main, Criterion, ParameterizedBenchmark,
-};
+use std::time::Duration;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures::{
     executor::block_on, future::join_all, join, sink::SinkExt,
     stream::StreamExt, FutureExt,
 };
-use futures_intrusive::channel::{
-    shared::channel, shared::unbuffered_channel, LocalChannel,
-};
-use std::time::Duration;
+use futures_intrusive::channel::shared::{channel, unbuffered_channel};
+use futures_intrusive::channel::LocalChannel;
 
 /// Elements to transfer per producer
 const ELEMS_TO_SEND: usize = 1000;
@@ -285,87 +283,119 @@ fn intrusive_local_chan_bounded_variable_tx_single_thread(producers: usize) {
     });
 }
 
-fn criterion_benchmark(c: &mut Criterion) {
+fn single_thread(c: &mut Criterion) {
     // Producer and consumer are running on the same thread
-    c.bench(
-        "Channels (Single Threaded)",
-        ParameterizedBenchmark::new(
-            "intrusive local channel with producers",
-            |b, &&producers| {
-                b.iter(|| {
-                    intrusive_local_chan_bounded_variable_tx_single_thread(
-                        producers,
-                    )
-                })
-            },
-            &[5, 20, 100],
-        )
-        .with_function("intrusive channel with producers", |b, &&producers| {
-            b.iter(|| {
-                intrusivechan_bounded_variable_tx_single_thread(producers)
-            })
-        })
-        .with_function(
-            "intrusive unbuffered channel with producers",
-            |b, &&producers| {
-                b.iter(|| {
-                    intrusivechan_unbuffered_variable_tx_single_thread(
-                        producers,
-                    )
-                })
-            },
-        )
-        .with_function(
-            "futures::channel::mpsc with producers",
-            |b, &&producers| {
-                b.iter(|| futchan_bounded_variable_tx_single_thread(producers))
-            },
-        )
-        .with_function(
-            "tokio::sync::mpsc with producers",
-            |b, &&producers| {
-                b.iter(|| {
-                    tokiochan_bounded_variable_tx_single_thread(producers)
-                })
-            },
-        ),
-    );
+    let mut group = c.benchmark_group("Channels (Single Threaded)");
+    for producers in [5, 20, 100] {
+        group
+            .bench_with_input(
+                format!("intrusive local channel with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| {
+                        intrusive_local_chan_bounded_variable_tx_single_thread(
+                            producers,
+                        )
+                    })
+                },
+            )
+            .bench_with_input(
+                format!("intrusive channel with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| {
+                        intrusivechan_bounded_variable_tx_single_thread(
+                            producers,
+                        )
+                    })
+                },
+            )
+            .bench_with_input(
+                format!(
+                    "intrusive unbuffered channel with {producers} producers"
+                ),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| {
+                        intrusivechan_unbuffered_variable_tx_single_thread(
+                            producers,
+                        )
+                    })
+                },
+            )
+            .bench_with_input(
+                format!("futures::channel::mpsc with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| {
+                        futchan_bounded_variable_tx_single_thread(producers)
+                    })
+                },
+            )
+            .bench_with_input(
+                format!("tokio::sync::mpsc with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| {
+                        tokiochan_bounded_variable_tx_single_thread(producers)
+                    })
+                },
+            );
+    }
 
+    group.finish();
+}
+
+fn multi_thread(c: &mut Criterion) {
     // Producer and consume run on a different thread
-    c.bench(
-        "Channels (Thread per producer)",
-        ParameterizedBenchmark::new(
-            "crossbeam channel with producers",
-            |b, &&producers| {
-                b.iter(|| crossbeam_channel_variable_tx(producers))
-            },
-            &[5, 20, 100],
-        )
-        .with_function("intrusive channel with producers", |b, &&producers| {
-            b.iter(|| intrusivechan_bounded_variable_tx(producers))
-        })
-        .with_function(
-            "intrusive unbuffered channel with producers",
-            |b, &&producers| {
-                b.iter(|| intrusivechan_unbuffered_variable_tx(producers))
-            },
-        )
-        .with_function(
-            "futures::channel::mpsc with producers",
-            |b, &&producers| b.iter(|| futchan_bounded_variable_tx(producers)),
-        )
-        .with_function(
-            "tokio::sync::mpsc with producers",
-            |b, &&producers| {
-                b.iter(|| tokiochan_bounded_variable_tx(producers))
-            },
-        ),
-    );
+    let mut group = c.benchmark_group("Channels (Thread per producer)");
+    for producers in [5, 20, 100] {
+        group
+            .bench_with_input(
+                format!("crossbeam channel with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| crossbeam_channel_variable_tx(producers))
+                },
+            )
+            .bench_with_input(
+                format!("intrusive channel with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| intrusivechan_bounded_variable_tx(producers))
+                },
+            )
+            .bench_with_input(
+                format!(
+                    "intrusive unbuffered channel with {producers} producers"
+                ),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| intrusivechan_unbuffered_variable_tx(producers))
+                },
+            )
+            .bench_with_input(
+                format!("futures::channel::mpsc with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| futchan_bounded_variable_tx(producers))
+                },
+            )
+            .bench_with_input(
+                format!("tokio::sync::mpsc with {producers} producers"),
+                &producers,
+                |b, &producers| {
+                    b.iter(|| tokiochan_bounded_variable_tx(producers))
+                },
+            );
+    }
+
+    group.finish();
 }
 
 criterion_group! {
     name = benches;
     config = Criterion::default().measurement_time(Duration::from_secs(10)).nresamples(50);
-    targets = criterion_benchmark
+    targets = single_thread, multi_thread
 }
 criterion_main!(benches);

@@ -1,6 +1,9 @@
 //! Benchmarks for asynchronous Semaphore implementations
 
-use criterion::{criterion_group, criterion_main, Benchmark, Criterion};
+use std::sync::Arc;
+use std::time::Duration;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures_intrusive::sync::{
     Semaphore as IntrusiveSemaphore,
     SemaphoreReleaser as IntrusiveSemaphoreReleaser,
@@ -8,9 +11,6 @@ use futures_intrusive::sync::{
 use tokio::sync::{
     Semaphore as TokioSemaphore, SemaphorePermit as TokioSemaphorePermit,
 };
-
-use std::sync::Arc;
-use std::time::Duration;
 
 mod utils;
 use utils::Yield;
@@ -120,9 +120,10 @@ macro_rules! benchmarks {
         $create_semaphore_fn: ident,
         $acquire_fn: ident,
     ) => {
-        $c.bench(
-            concat!($rt_name, "/", $semaphore_name),
-            Benchmark::new("heavy contention", |b| {
+        let mut group =
+            $c.benchmark_group(concat!($rt_name, "/", $semaphore_name));
+        group
+            .bench_function("heavy contention", |b| {
                 bench!(
                     b,
                     $rt_setup,
@@ -133,7 +134,7 @@ macro_rules! benchmarks {
                     $acquire_fn,
                 );
             })
-            .with_function("normal contention", |b| {
+            .bench_function("normal contention", |b| {
                 bench!(
                     b,
                     $rt_setup,
@@ -144,7 +145,7 @@ macro_rules! benchmarks {
                     $acquire_fn,
                 );
             })
-            .with_function("no contention", |b| {
+            .bench_function("no contention", |b| {
                 bench!(
                     b,
                     $rt_setup,
@@ -154,8 +155,8 @@ macro_rules! benchmarks {
                     $create_semaphore_fn,
                     $acquire_fn,
                 );
-            }),
-        );
+            });
+        group.finish();
     };
 }
 
