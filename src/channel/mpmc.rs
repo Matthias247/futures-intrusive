@@ -92,6 +92,7 @@ where
         }
     }
 
+    #[cfg(feature = "alloc")]
     fn clear(&mut self) {
         while !self.buffer.is_empty() {
             self.buffer.pop();
@@ -423,7 +424,7 @@ where
     /// the channel.
     /// If the channel gets closed while the send is in progress, sending the
     /// value will fail, and the future will deliver the value back.
-    pub fn send(&self, value: T) -> ChannelSendFuture<MutexType, T> {
+    pub fn send(&self, value: T) -> ChannelSendFuture<'_, MutexType, T> {
         ChannelSendFuture {
             channel: Some(self),
             wait_node: ListNode::new(SendWaitQueueEntry::new(value)),
@@ -456,7 +457,7 @@ where
 
     /// Returns a future that gets fulfilled when a value is written to the channel.
     /// If the channels gets closed, the future will resolve to `None`.
-    pub fn receive(&self) -> ChannelReceiveFuture<MutexType, T> {
+    pub fn receive(&self) -> ChannelReceiveFuture<'_, MutexType, T> {
         ChannelReceiveFuture {
             channel: Some(self),
             wait_node: ListNode::new(RecvWaitQueueEntry::new()),
@@ -483,7 +484,7 @@ where
     ///
     /// This stream does not yield `None` when the channel is empty,
     /// instead it yields `None` when it is terminated.
-    pub fn stream(&self) -> ChannelStream<MutexType, T, A> {
+    pub fn stream(&self) -> ChannelStream<'_, MutexType, T, A> {
         ChannelStream {
             channel: Some(self),
             future: None,
