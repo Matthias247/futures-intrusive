@@ -80,6 +80,25 @@ impl<T> LinkedList<T> {
         }
     }
 
+    /// Adds a node at the back of the linked list.
+    ///
+    /// Safety: This function is only safe as long as `node` is guaranteed to
+    /// get removed from the list before it gets moved or dropped.
+    /// In addition to this `node` may not be added to another other list before
+    /// it is removed from the current one.
+    pub unsafe fn add_back(&mut self, node: &mut ListNode<T>) {
+        node.next = None;
+        node.prev = self.tail;
+        match self.tail {
+            Some(mut tail) => tail.as_mut().next = Some(node.into()),
+            None => {}
+        };
+        self.tail = Some(node.into());
+        if self.head.is_none() {
+            self.head = Some(node.into());
+        }
+    }
+
     /// Returns a reference to the first node in the linked list
     /// The function is only safe as long as valid pointers are stored inside
     /// the linked list.
@@ -320,6 +339,71 @@ impl<T> LinkedList<T> {
             }
         }
     }
+
+    /// Iterate the list in reverse order by calling a callback on each list node
+    /// and determining what to do based on the control flow.
+    pub fn reverse_apply_while<F>(&mut self, mut func: F)
+    where
+        F: FnMut(&mut ListNode<T>) -> ControlFlow,
+    {
+        let mut current = self.tail;
+
+        while let Some(mut node) = current {
+            // Safety: We are exclusively using nodes that are already contained
+            // in the list so they will contain valid data. The nodes can also
+            // not be added to the list again during iteration, since the list
+            // is mutably borrowed.
+            unsafe {
+                let flow = func(node.as_mut());
+                match flow {
+                    ControlFlow::Continue => {
+                        current = node.as_mut().prev;
+                    }
+                    ControlFlow::Stop => return,
+                    ControlFlow::RemoveAndStop
+                    | ControlFlow::RemoveAndContinue => {
+                        let node = node.as_mut();
+                        match node.prev {
+                            Some(mut prev) => {
+                                prev.as_mut().next = node.next;
+                            }
+                            None => {
+                                self.head = node.next;
+                            }
+                        }
+                        match node.next {
+                            Some(mut next) => {
+                                next.as_mut().prev = node.prev;
+                            }
+                            None => {
+                                self.tail = node.prev;
+                            }
+                        }
+                        if let ControlFlow::RemoveAndStop = flow {
+                            return;
+                        } else {
+                            current = node.prev;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The outcome of a callback.
+pub enum ControlFlow {
+    /// Continue the iteration.
+    Continue,
+
+    /// Stop the iteration.
+    Stop,
+
+    /// Remove the current entry and stop the iteration.
+    RemoveAndStop,
+
+    /// Remove the current entry and continue the iteration.
+    RemoveAndContinue,
 }
 
 #[cfg(all(test, feature = "alloc"))] // Tests make use of Vec at the moment
